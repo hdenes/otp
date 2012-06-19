@@ -127,11 +127,8 @@ ok</pre>
       </desc>
     </func>
     <func>
-      <name>warning_map() -> Tag</name>
+      <name name="warning_map" arity="0"/>
       <fsummary>Return the current mapping for warning events</fsummary>
-      <type>
-        <v>Tag = error | warning | info</v>
-      </type>
       <desc>
         <p>Returns the current mapping for warning events. Events sent
           using <c>warning_msg/1,2</c> or <c>warning_report/1,2</c>

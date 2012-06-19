@@ -63,11 +63,7 @@
 #    define PROCESS_MAIN_CHK_LOCKS(P)					\
 do {									\
     if ((P)) {								\
-	erts_pix_lock_t *pix_lock__ = ERTS_PIX2PIXLOCK(internal_pid_index((P)->id));\
 	erts_proc_lc_chk_only_proc_main((P));				\
-	erts_pix_lock(pix_lock__);					\
-	ASSERT(0 < (P)->lock.refc && (P)->lock.refc < erts_no_schedulers*5);\
-	erts_pix_unlock(pix_lock__);					\
     }									\
     else								\
 	erts_lc_check_exact(NULL, 0);					\
@@ -495,7 +491,7 @@ extern int count_instructions;
   do {								\
      if (FCALLS > 0) {						\
         Eterm* dis_next;					\
-        SET_I(((Export *) Arg(0))->address);			\
+        SET_I(((Export *) Arg(0))->addressv[erts_active_code_ix()]); \
         dis_next = (Eterm *) *I;				\
         FCALLS--;						\
         CHECK_ARGS(I);						\
@@ -504,7 +500,7 @@ extern int count_instructions;
 		&& FCALLS > neg_o_reds) {			\
         goto save_calls1;					\
      } else {							\
-        SET_I(((Export *) Arg(0))->address);			\
+        SET_I(((Export *) Arg(0))->addressv[erts_active_code_ix()]); \
         CHECK_ARGS(I);						\
 	goto context_switch;					\
      }								\
@@ -1507,7 +1503,7 @@ void process_main(void)
      */
 #ifdef USE_VM_CALL_PROBES
     if (DTRACE_ENABLED(global_function_entry)) {
-	BeamInstr* fp = (BeamInstr *) (((Export *) Arg(0))->address);
+	BeamInstr* fp = (BeamInstr *) (((Export *) Arg(0))->addressv[erts_active_code_ix()]);
 	DTRACE_GLOBAL_CALL(c_p, (Eterm)fp[-3], (Eterm)fp[-2], fp[-1]);
     }
 #endif
@@ -1522,7 +1518,7 @@ void process_main(void)
     SET_CP(c_p, I+2);
 #ifdef USE_VM_CALL_PROBES
     if (DTRACE_ENABLED(global_function_entry)) {
-	BeamInstr* fp = (BeamInstr *) (((Export *) Arg(0))->address);
+	BeamInstr* fp = (BeamInstr *) (((Export *) Arg(0))->addressv[erts_active_code_ix()]);
 	DTRACE_GLOBAL_CALL(c_p, (Eterm)fp[-3], (Eterm)fp[-2], fp[-1]);
     }
 #endif
@@ -1535,7 +1531,7 @@ void process_main(void)
  OpCase(i_call_ext_only_e):
 #ifdef USE_VM_CALL_PROBES
     if (DTRACE_ENABLED(global_function_entry)) {
-	BeamInstr* fp = (BeamInstr *) (((Export *) Arg(0))->address);
+	BeamInstr* fp = (BeamInstr *) (((Export *) Arg(0))->addressv[erts_active_code_ix()]);
 	DTRACE_GLOBAL_CALL(c_p, (Eterm)fp[-3], (Eterm)fp[-2], fp[-1]);
     }
 #endif
@@ -1826,13 +1822,12 @@ void process_main(void)
 	 msgp = PEEK_MESSAGE(c_p);
 	 if (msgp)
 	     erts_smp_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
-	 else {
+	 else
 #endif
+	 {
 	     SET_I((BeamInstr *) Arg(0));
 	     Goto(*I);		/* Jump to a wait or wait_timeout instruction */
-#ifdef ERTS_SMP
 	 }
-#endif
      }
      ErtsMoveMsgAttachmentIntoProc(msgp, c_p, E, HTOP, FCALLS,
 				   {
@@ -2061,11 +2056,11 @@ void process_main(void)
 	 OpCase(wait_f):
 
 	 wait2: {
-	     ASSERT(!ERTS_PROC_IS_EXITING(c_p));
 	     c_p->i = (BeamInstr *) Arg(0); /* L1 */
 	     SWAPOUT;
 	     c_p->arity = 0;
-	     c_p->status = P_WAITING;
+	     erts_smp_atomic32_read_band_relb(&c_p->state, ~ERTS_PSFLG_ACTIVE);
+	     ASSERT(!ERTS_PROC_IS_EXITING(c_p));
 	     erts_smp_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
 	     c_p->current = NULL;
 	     goto do_schedule;
@@ -3144,10 +3139,6 @@ void process_main(void)
      c_p->arg_reg[0] = r(0);
      SWAPOUT;
      c_p->i = I;
-     erts_smp_proc_lock(c_p, ERTS_PROC_LOCK_STATUS);
-     if (c_p->status != P_SUSPENDED)
-	 erts_add_to_runq(c_p);
-     erts_smp_proc_unlock(c_p, ERTS_PROC_LOCK_STATUS);
      goto do_schedule1;
  }
 
@@ -5110,9 +5101,6 @@ void process_main(void)
      c_p->arity = 1; /* One living register (the 'true' return value) */
      SWAPOUT;
      c_p->i = I + 1; /* Next instruction */
-     erts_smp_proc_lock(c_p, ERTS_PROC_LOCK_STATUS);
-     erts_add_to_runq(c_p);
-     erts_smp_proc_unlock(c_p, ERTS_PROC_LOCK_STATUS);
      c_p->current = NULL;
      goto do_schedule;
  }
@@ -5234,7 +5222,7 @@ void process_main(void)
 
 	save_calls(c_p, (Export *) Arg(0));
 
-	SET_I(((Export *) Arg(0))->address);
+	SET_I(((Export *) Arg(0))->addressv[erts_active_code_ix()]);
 
 	dis_next = (Eterm *) *I;
 	FCALLS--;
@@ -5911,7 +5899,8 @@ call_error_handler(Process* p, BeamInstr* fi, Eterm* reg, Eterm func)
     /*
      * Search for the error_handler module.
      */
-    ep = erts_find_function(erts_proc_get_error_handler(p), func, 3);
+    ep = erts_find_function(erts_proc_get_error_handler(p), func, 3,
+			    erts_active_code_ix());
     if (ep == NULL) {		/* No error handler */
 	p->current = fi;
 	p->freason = EXC_UNDEF;
@@ -5941,7 +5930,7 @@ call_error_handler(Process* p, BeamInstr* fi, Eterm* reg, Eterm func)
     reg[0] = fi[0];
     reg[1] = fi[1];
     reg[2] = args;
-    return ep->address;
+    return ep->addressv[erts_active_code_ix()];
 }
 
 
@@ -5955,7 +5944,7 @@ apply_setup_error_handler(Process* p, Eterm module, Eterm function, Uint arity, 
      * there is no error handler module.
      */
 
-    if ((ep = erts_find_export_entry(erts_proc_get_error_handler(p),
+    if ((ep = erts_active_export_entry(erts_proc_get_error_handler(p),
 				     am_undefined_function, 3)) == NULL) {
 	return NULL;
     } else {
@@ -6062,7 +6051,7 @@ apply(Process* p, Eterm module, Eterm function, Eterm args, Eterm* reg)
      * Note: All BIFs have export entries; thus, no special case is needed.
      */
 
-    if ((ep = erts_find_export_entry(module, function, arity)) == NULL) {
+    if ((ep = erts_active_export_entry(module, function, arity)) == NULL) {
 	if ((ep = apply_setup_error_handler(p, module, function, arity, reg)) == NULL) goto error;
     } else if (ERTS_PROC_GET_SAVED_CALLS_BUF(p)) {
 	save_calls(p, ep);
@@ -6070,11 +6059,11 @@ apply(Process* p, Eterm module, Eterm function, Eterm args, Eterm* reg)
 
 #ifdef USE_VM_CALL_PROBES
     if (DTRACE_ENABLED(global_function_entry)) {
-        BeamInstr *fptr = (BeamInstr *) ep->address;
+        BeamInstr *fptr = (BeamInstr *) ep->addressv[erts_active_code_ix()];
 	DTRACE_GLOBAL_CALL(p, (Eterm)fptr[-3], (Eterm)fptr[-2], (Uint)fptr[-1]);
     }
 #endif
-    return ep->address;
+    return ep->addressv[erts_active_code_ix()];
 }
 
 static BeamInstr*
@@ -6116,7 +6105,7 @@ fixed_apply(Process* p, Eterm* reg, Uint arity)
      * Note: All BIFs have export entries; thus, no special case is needed.
      */
 
-    if ((ep = erts_find_export_entry(module, function, arity)) == NULL) {
+    if ((ep = erts_active_export_entry(module, function, arity)) == NULL) {
 	if ((ep = apply_setup_error_handler(p, module, function, arity, reg)) == NULL)
 	    goto error;
     } else if (ERTS_PROC_GET_SAVED_CALLS_BUF(p)) {
@@ -6125,11 +6114,11 @@ fixed_apply(Process* p, Eterm* reg, Uint arity)
 
 #ifdef USE_VM_CALL_PROBES
     if (DTRACE_ENABLED(global_function_entry)) {
-        BeamInstr *fptr = (BeamInstr *) ep->address;
+        BeamInstr *fptr = (BeamInstr *)  ep->addressv[erts_active_code_ix()];
 	DTRACE_GLOBAL_CALL(p, (Eterm)fptr[-3], (Eterm)fptr[-2], (Uint)fptr[-1]);
     }
 #endif
-    return ep->address;
+    return ep->addressv[erts_active_code_ix()];
 }
 
 int
@@ -6206,9 +6195,7 @@ erts_hibernate(Process* c_p, Eterm module, Eterm function, Eterm args, Eterm* re
      */
     erts_smp_proc_lock(c_p, ERTS_PROC_LOCK_MSGQ|ERTS_PROC_LOCK_STATUS);
     ERTS_SMP_MSGQ_MV_INQ2PRIVQ(c_p);
-    if (c_p->msg.len > 0) {
-	erts_add_to_runq(c_p);
-    } else {
+    if (!c_p->msg.len) {
 	erts_smp_proc_unlock(c_p, ERTS_PROC_LOCK_MSGQ|ERTS_PROC_LOCK_STATUS);
 	c_p->fvalue = NIL;
 	PROCESS_MAIN_CHK_LOCKS(c_p);
@@ -6216,14 +6203,12 @@ erts_hibernate(Process* c_p, Eterm module, Eterm function, Eterm args, Eterm* re
 	ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
 	PROCESS_MAIN_CHK_LOCKS(c_p);
 	erts_smp_proc_lock(c_p, ERTS_PROC_LOCK_MSGQ|ERTS_PROC_LOCK_STATUS);
-	ASSERT(!ERTS_PROC_IS_EXITING(c_p));
 #ifdef ERTS_SMP
 	ERTS_SMP_MSGQ_MV_INQ2PRIVQ(c_p);
-	if (c_p->msg.len > 0)
-	    erts_add_to_runq(c_p);
-	else
+	if (!c_p->msg.len)
 #endif
-	    c_p->status = P_WAITING;
+	    erts_smp_atomic32_read_band_relb(&c_p->state, ~ERTS_PSFLG_ACTIVE);
+	ASSERT(!ERTS_PROC_IS_EXITING(c_p));
     }
     erts_smp_proc_unlock(c_p, ERTS_PROC_LOCK_MSGQ|ERTS_PROC_LOCK_STATUS);
     c_p->current = bif_export[BIF_hibernate_3]->code;
@@ -6311,7 +6296,7 @@ call_fun(Process* p,		/* Current process. */
 		Export* ep;
 		Module* modp;
 		Eterm module;
-
+		ErtsCodeIndex code_ix = erts_active_code_ix();
 
 		/*
 		 * No arity. There is no module loaded that defines the fun,
@@ -6319,9 +6304,9 @@ call_fun(Process* p,		/* Current process. */
 		 * representation (the module has never been loaded),
 		 * or the module defining the fun has been unloaded.
 		 */
-
 		module = fe->module;
-		if ((modp = erts_get_module(module)) != NULL && modp->code != NULL) {
+		if ((modp = erts_get_module(module, code_ix)) != NULL
+		    && modp->curr.code != NULL) {
 		    /*
 		     * There is a module loaded, but obviously the fun is not
 		     * defined in it. We must not call the error_handler
@@ -6336,7 +6321,7 @@ call_fun(Process* p,		/* Current process. */
 		 */
 
 		ep = erts_find_function(erts_proc_get_error_handler(p),
-					am_undefined_lambda, 3);
+					am_undefined_lambda, 3, code_ix);
 		if (ep == NULL) {	/* No error handler */
 		    p->current = NULL;
 		    p->freason = EXC_UNDEF;
@@ -6346,7 +6331,7 @@ call_fun(Process* p,		/* Current process. */
 		reg[1] = fun;
 		reg[2] = args;
 		reg[3] = NIL;
-		return ep->address;
+		return ep->addressv[erts_active_code_ix()];
 	    }
 	}
     } else if (is_export_header(hdr)) {
@@ -6358,7 +6343,7 @@ call_fun(Process* p,		/* Current process. */
 
 	if (arity == actual_arity) {
 	    DTRACE_GLOBAL_CALL(p, ep->code[0], ep->code[1], (Uint)ep->code[2]);
-	    return ep->address;
+	    return ep->addressv[erts_active_code_ix()];
 	} else {
 	    /*
 	     * Wrong arity. First build a list of the arguments.
@@ -6409,8 +6394,8 @@ call_fun(Process* p,		/* Current process. */
 	    erts_send_warning_to_logger(p->group_leader, dsbufp);
 	}
 
-	if ((ep = erts_find_export_entry(module, function, arity)) == NULL) {
-	    ep = erts_find_export_entry(erts_proc_get_error_handler(p),
+	if ((ep = erts_active_export_entry(module, function, arity)) == NULL) {
+	    ep = erts_active_export_entry(erts_proc_get_error_handler(p),
 					am_undefined_function, 3);
 	    if (ep == NULL) {
 		p->freason = EXC_UNDEF;
@@ -6434,7 +6419,7 @@ call_fun(Process* p,		/* Current process. */
 	    reg[2] = args;
 	}
 	DTRACE_GLOBAL_CALL(p, module, function, arity);
-	return ep->address;
+	return ep->addressv[erts_active_code_ix()];
     } else {
     badfun:
 	p->current = NULL;
@@ -6537,7 +6522,8 @@ erts_is_builtin(Eterm Mod, Eterm Name, int arity)
     if ((ep = export_get(&e)) == NULL) {
 	return 0;
     }
-    return ep->address == ep->code+3 && (ep->code[3] == (BeamInstr) em_apply_bif);
+    return ep->addressv[erts_active_code_ix()] == ep->code+3
+	&& (ep->code[3] == (BeamInstr) em_apply_bif);
 }
 
 

@@ -478,15 +478,16 @@ erts_find_local_func(Eterm mfa[3]) {
     BeamInstr* code_ptr;
     Uint i,n;
 
-    if ((modp = erts_get_module(mfa[0])) == NULL)
+    if ((modp = erts_get_module(mfa[0], erts_active_code_ix())) == NULL)
 	return NULL;
-    if ((code_base = (BeamInstr **) modp->code) == NULL)
+    if ((code_base = (BeamInstr **) modp->curr.code) == NULL)
 	return NULL;
     n = (BeamInstr) code_base[MI_NUM_FUNCTIONS];
     for (i = 0; i < n; ++i) {
 	code_ptr = code_base[MI_FUNCTIONS+i];
 	ASSERT(((BeamInstr) BeamOp(op_i_func_info_IaaI)) == code_ptr[0]);
-	ASSERT(mfa[0] == ((Eterm) code_ptr[2]));
+	ASSERT(mfa[0] == ((Eterm) code_ptr[2]) ||
+	       is_nil((Eterm) code_ptr[2]));
 	if (mfa[1] == ((Eterm) code_ptr[3]) &&
 	    ((BeamInstr) mfa[2]) == code_ptr[4]) {
 	    return code_ptr + 5;
@@ -713,7 +714,7 @@ void erts_trace_time_break(Process *p, BeamInstr *pc, BpDataTime *bdt, Uint type
     BpDataTime *pbdt = NULL;
 
     ASSERT(p);
-    ASSERT(p->status == P_RUNNING);
+    ASSERT(ERTS_PSFLG_RUNNING & erts_smp_atomic32_read_acqb(&p->state));
 
     /* get previous timestamp and breakpoint
      * from the process psd  */
@@ -849,12 +850,13 @@ static int set_break(Eterm mfa[3], int specified,
 {
     Module *modp;
     int num_processed = 0;
+    ErtsCodeIndex code_ix = erts_active_code_ix();
     if (!specified) {
 	/* Find and process all modules in the system... */
 	int current;
-	int last = module_code_size();
+	int last = module_code_size(code_ix);
 	for (current = 0; current < last; current++) {
-	    modp = module_code(current);
+	    modp = module_code(current, code_ix);
 	    ASSERT(modp != NULL);
 	    num_processed += 
 		set_module_break(modp, mfa, specified, 
@@ -863,7 +865,7 @@ static int set_break(Eterm mfa[3], int specified,
 	}
     } else {
 	/* Process a single module */
-	if ((modp = erts_get_module(mfa[0])) != NULL) {
+	if ((modp = erts_get_module(mfa[0], code_ix)) != NULL) {
 	    num_processed += 
 		set_module_break(modp, mfa, specified, 
 				 match_spec, break_op, count_op, 
@@ -883,7 +885,7 @@ static int set_module_break(Module *modp, Eterm mfa[3], int specified,
 
     ASSERT(break_op);
     ASSERT(modp);
-    code_base = (BeamInstr **) modp->code;
+    code_base = (BeamInstr **) modp->curr.code;
     if (code_base == NULL) {
 	return 0;
     }
@@ -913,10 +915,10 @@ static int set_function_break(Module *modp, BeamInstr *pc, int bif,
     Uint ix = 0;
     
     if (bif == BREAK_IS_ERL) {
-	code_base = (BeamInstr **)modp->code;
+	code_base = (BeamInstr **)modp->curr.code;
 	ASSERT(code_base);
 	ASSERT(code_base <= (BeamInstr **)pc);
-	ASSERT((BeamInstr **)pc < code_base + (modp->code_length/sizeof(BeamInstr *)));
+	ASSERT((BeamInstr **)pc < code_base + (modp->curr.code_length/sizeof(BeamInstr *)));
     } else {
 	ASSERT(*pc == (BeamInstr) em_apply_bif);
 	ASSERT(modp == NULL);
@@ -1097,29 +1099,30 @@ static int set_function_break(Module *modp, BeamInstr *pc, int bif,
     }
 
     if (bif == BREAK_IS_ERL) {
-	++(*(BeamInstr*)&code_base[MI_NUM_BREAKPOINTS]);
+	++modp->curr.num_breakpoints;
     }
     return 1;
 }
 
 static int clear_break(Eterm mfa[3], int specified, BeamInstr break_op)
 {
+    ErtsCodeIndex code_ix = erts_active_code_ix();
     int num_processed = 0;
     Module *modp;
 
     if (!specified) {
 	/* Iterate over all modules */
 	int current;
-	int last = module_code_size();
+	int last = module_code_size(code_ix);
 
 	for (current = 0; current < last; current++) {
-	    modp = module_code(current);
+	    modp = module_code(current, code_ix);
 	    ASSERT(modp != NULL);
 	    num_processed += clear_module_break(modp, mfa, specified, break_op);
 	}
     } else {
 	/* Process a single module */
-	if ((modp = erts_get_module(mfa[0])) != NULL) {
+	if ((modp = erts_get_module(mfa[0], code_ix)) != NULL) {
 	    num_processed += 
 		clear_module_break(modp, mfa, specified, break_op);
 	}	
@@ -1136,7 +1139,7 @@ static int clear_module_break(Module *m, Eterm mfa[3], int specified,
     BeamInstr n;
     
     ASSERT(m);
-    code_base = (BeamInstr **) m->code;
+    code_base = (BeamInstr **) m->curr.code;
     if (code_base == NULL) {
 	return 0;
     }
@@ -1160,10 +1163,10 @@ static int clear_function_break(Module *m, BeamInstr *pc, int bif, BeamInstr bre
     BeamInstr **code_base = NULL;
 
     if (bif == BREAK_IS_ERL) {
-	code_base = (BeamInstr **)m->code;
+	code_base = (BeamInstr **)m->curr.code;
 	ASSERT(code_base);
 	ASSERT(code_base <= (BeamInstr **)pc);
-	ASSERT((BeamInstr **)pc < code_base + (m->code_length/sizeof(BeamInstr *)));
+	ASSERT((BeamInstr **)pc < code_base + (m->curr.code_length/sizeof(BeamInstr *)));
     } else {
 	ASSERT(*pc == (BeamInstr) em_apply_bif);
 	ASSERT(m == NULL);
@@ -1255,7 +1258,7 @@ static int clear_function_break(Module *m, BeamInstr *pc, int bif, BeamInstr bre
 		    for (j = 0; j < bdt->hash[i].n; ++j) {
 			item = &(bdt->hash[i].item[j]);
 			if (item->pid != NIL) {
-			    h_p = process_tab[internal_pid_index(item->pid)];
+			    h_p = erts_proc_lookup(item->pid);
 			    if (h_p) {
 				pbt = ERTS_PROC_SET_CALL_TIME(h_p, ERTS_PROC_LOCK_MAIN, NULL);
 				if (pbt) {
@@ -1273,8 +1276,8 @@ static int clear_function_break(Module *m, BeamInstr *pc, int bif, BeamInstr bre
 	}
 	Free(bd);
 	if (bif == BREAK_IS_ERL) {
-	    ASSERT(((BeamInstr) code_base[MI_NUM_BREAKPOINTS]) > 0);
-	    --(*(BeamInstr*)&code_base[MI_NUM_BREAKPOINTS]);
+	    ASSERT(m->curr.num_breakpoints > 0);
+	    --m->curr.num_breakpoints;
 	}
 	if (*rs) {
 	    for (ix = 1; ix < erts_no_schedulers; ++ix) {

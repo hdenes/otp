@@ -55,6 +55,61 @@
 #endif
 
 /*
+ * The variables below (prefixed with etp_) are for erts/etc/unix/etp-commands
+ * only. Do not remove even though they aren't used elsewhere in the emulator!
+ */
+#ifdef ERTS_SMP
+const int etp_smp_compiled = 1;
+#else
+const int etp_smp_compiled = 0;
+#endif
+#ifdef USE_THREADS
+const int etp_thread_compiled = 1;
+#else
+const int etp_thread_compiled = 0;
+#endif
+const char etp_erts_version[] = ERLANG_VERSION;
+const char etp_otp_release[] = ERLANG_OTP_RELEASE;
+const char etp_compile_date[] = ERLANG_COMPILE_DATE;
+const char etp_arch[] = ERLANG_ARCHITECTURE;
+#ifdef ERTS_ENABLE_KERNEL_POLL
+const int etp_kernel_poll_support = 1;
+#else
+const int etp_kernel_poll_support = 0;
+#endif
+#if defined(ARCH_64)
+const int etp_arch_bits = 64;
+#elif defined(ARCH_32)
+const int etp_arch_bits = 32;
+#else
+# error "Not 64-bit, nor 32-bit arch"
+#endif
+#if HALFWORD_HEAP
+const int etp_halfword = 1;
+#else
+const int etp_halfword = 0;
+#endif
+#ifdef HIPE
+const int etp_hipe = 1;
+#else
+const int etp_hipe = 0;
+#endif
+#ifdef DEBUG
+const int etp_debug_compiled = 1;
+#else
+const int etp_debug_compiled = 0;
+#endif
+#ifdef ERTS_ENABLE_LOCK_COUNT
+const int etp_lock_count = 1;
+#else
+const int etp_lock_count = 0;
+#endif
+#ifdef ERTS_ENABLE_LOCK_CHECK
+const int etp_lock_check = 1;
+#else
+const int etp_lock_check = 0;
+#endif
+/*
  * Note about VxWorks: All variables must be initialized by executable code,
  * not by an initializer. Otherwise a new instance of the emulator will
  * inherit previous values.
@@ -241,6 +296,7 @@ erl_init(int ncpu)
     erts_init_trace();
     erts_init_binary();
     erts_init_bits();
+    erts_code_ix_init();
     erts_init_fun_table();
     init_atom_table();
     init_export_table();
@@ -289,7 +345,8 @@ erl_first_process_otp(char* modname, void* code, unsigned size, int argc, char**
     Eterm env;
     
     start_mod = am_atom_put(modname, sys_strlen(modname));
-    if (erts_find_function(start_mod, am_start, 2) == NULL) {
+    if (erts_find_function(start_mod, am_start, 2,
+			   erts_active_code_ix()) == NULL) {
 	erl_exit(5, "No function %s:start/2\n", modname);
     }
 
@@ -388,7 +445,7 @@ load_preloaded(void)
 	if ((code = sys_preload_begin(&preload_p[i])) == 0)
 	    erl_exit(1, "Failed to find preloaded code for module %s\n", 
 		     name);
-	res = erts_load_module(NULL, 0, NIL, &module_name, code, length);
+	res = erts_preload_module(NULL, 0, NIL, &module_name, code, length);
 	sys_preload_end(&preload_p[i]);
 	if (res != NIL)
 	    erl_exit(1,"Failed loading preloaded module %s (%T)\n",
@@ -555,6 +612,7 @@ early_init(int *argc, char **argv) /*
     erts_printf_eterm_func = erts_printf_term;
     erts_disable_tolerant_timeofday = 0;
     display_items = 200;
+    erts_proc.max = ERTS_DEFAULT_MAX_PROCESSES;
     erts_backtrace_depth = DEFAULT_BACKTRACE_SIZE;
     erts_async_max_threads = 0;
     erts_async_thread_suggested_stack_size = ERTS_ASYNC_THREAD_MIN_STACK_SIZE;
@@ -1097,7 +1155,7 @@ erl_start(int argc, char **argv)
 	case 'P':
 	    /* set maximum number of processes */
 	    Parg = get_arg(argv[i]+2, argv[i+1], &i);
-	    erts_max_processes = atoi(Parg);
+	    erts_proc.max = atoi(Parg);
 	    /* Check of result is delayed until later. This is because +R
 	       may be given after +P. */
 	    break;
@@ -1396,10 +1454,10 @@ erl_start(int argc, char **argv)
     }
 
     /* Delayed check of +P flag */
-    if (erts_max_processes < ERTS_MIN_PROCESSES
-	|| erts_max_processes > ERTS_MAX_PROCESSES
+    if (erts_proc.max < ERTS_MIN_PROCESSES
+	|| erts_proc.max > ERTS_MAX_PROCESSES
 	|| (erts_use_r9_pids_ports
-	    && erts_max_processes > ERTS_MAX_R9_PROCESSES)) {
+	    && erts_proc.max > ERTS_MAX_R9_PROCESSES)) {
 	erts_fprintf(stderr, "bad number of processes %s\n", Parg);
 	erts_usage();
     }
@@ -1427,6 +1485,8 @@ erl_start(int argc, char **argv)
     erl_init(ncpu);
 
     load_preloaded();
+    erts_end_staging_code_ix();
+    erts_commit_staging_code_ix();
 
     erts_initialized = 1;
 

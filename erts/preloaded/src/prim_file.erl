@@ -147,6 +147,32 @@
 -define(POSIX_FADV_NOREUSE,    5).
 
 
+%%% BIFs
+
+-export([internal_name2native/1,
+         internal_native2name/1,
+         internal_normalize_utf8/1]).
+
+-type unicode_string() :: [unicode:unicode_char()].
+-type prim_file_name() :: unicode_string() | unicode:unicode_binary().
+
+-spec internal_name2native(prim_file_name()) -> binary().
+
+internal_name2native(_) ->
+    erlang:nif_error(undefined).
+
+-spec internal_native2name(binary()) -> prim_file_name().
+
+internal_native2name(_) ->
+    erlang:nif_error(undefined).
+
+-spec internal_normalize_utf8(unicode:unicode_binary()) -> unicode_string().
+
+internal_normalize_utf8(_) ->
+    erlang:nif_error(undefined).
+
+%%% End of BIFs
+
 %%%-----------------------------------------------------------------
 %%% Functions operating on a file through a handle. ?FD_DRV.
 %%%

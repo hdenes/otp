@@ -82,8 +82,8 @@ static erts_lc_lock_order_t erts_lock_order[] = {
 #ifdef ERTS_SMP
     {	"bif_timers",				NULL			},
     {	"reg_tab",				NULL			},
-    {	"migration_info_update",		NULL			},
     {	"proc_main",				"pid"			},
+    {   "old_code",                             "address"               },
 #ifdef HIPE
     {	"hipe_mfait_lock",			NULL			},
 #endif
@@ -93,6 +93,7 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {	"proc_msgq",				"pid"			},
     {	"dist_entry",				"address"		},
     {	"dist_entry_links",			"address"		},
+    {   "code_ix_queue",                        NULL                    },
     {	"proc_status",				"pid"			},
     {	"proc_tab",				NULL			},
     {   "ports_snapshot",                       NULL                    },
@@ -124,6 +125,7 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {   "removed_fd_pre_alloc_lock",            "address"               },
     {   "state_prealloc",                       NULL                    },
     {	"schdlr_sspnd",				NULL			},
+    {	"migration_info_update",		NULL			},
     {	"run_queue",				"address"		},
     {	"cpu_info",				NULL			},
     {	"pollset",				"address"		},
@@ -446,7 +448,7 @@ print_lock2(char *prefix, Sint16 id, Wterm extra, Uint16 flags, char *suffix)
 		     "%s'%s:%p%s'%s%s",
 		     prefix,
 		     lname,
-		     boxed_val(extra),
+		     _unchecked_boxed_val(extra),
 		     lock_type(flags),
 		     rw_op_str(flags),
 		     suffix);

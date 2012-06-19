@@ -111,6 +111,24 @@
 -type sendfile_option() :: {chunk_size, non_neg_integer()}.
 -type file_info_option() :: {'time', 'local'} | {'time', 'universal'} 
 			  | {'time', 'posix'}.
+%%% BIFs
+
+-export([file_info/1, native_name_encoding/0]).
+
+-spec file_info(Filename) -> {ok, FileInfo} | {error, Reason} when
+      Filename :: name(),
+      FileInfo :: file_info(),
+      Reason :: posix() | badarg.
+
+file_info(_) ->
+    erlang:nif_error(undef).
+
+-spec native_name_encoding() -> latin1 | utf8.
+
+native_name_encoding() ->
+    erlang:nif_error(undef).
+
+%%% End of BIFs
 
 
 %%%-----------------------------------------------------------------
