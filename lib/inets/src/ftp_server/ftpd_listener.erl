@@ -14,15 +14,13 @@ loop(LSock, SupPid, Args) ->
 	end.
 
 start_link(Args) ->
-	gen_server:start_link({local, ftpd_listener}, ?MODULE, Args, []).
+	Reg_name = list_to_atom(lists:append("ftpd_listener_", integer_to_list(get_port(Args)))),
+	gen_server:start_link({local, Reg_name}, ?MODULE, Args, []).
 
 init(Args) ->
 	process_flag(trap_exit, true),
 	
-	Port = case proplists:lookup(port,Args) of
-		{port, Pt} -> Pt;
-		none -> 21
-		end, 
+	Port = get_port(Args), 
 
    	SupPid = proplists:get_value(sup_pid,Args),
 
@@ -49,7 +47,11 @@ init(Args) ->
 	{ok, {Port, SupPid, LSock}}.
 
 
-
+get_port(Args) ->
+	case proplists:lookup(port,Args) of
+		{port, Pt} -> Pt;
+		none -> 21
+	end.
 
 
 handle_call(_Req, _From, State) -> {noreply, State}.

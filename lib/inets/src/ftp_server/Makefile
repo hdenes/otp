@@ -45,7 +45,8 @@ MODULES = \
 	ftpd_listener \
 	ftpd_ctrl_conn \
 	ftpd_data_conn \
-	ftpd_dir
+	ftpd_dir \
+	ftpd_util
 
 HRL_FILES =
 

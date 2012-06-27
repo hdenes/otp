@@ -379,7 +379,8 @@ log_trace_test(Config) ->
     [{_, "Listed directory /dir"}] = ets:lookup(Tid, ?LIST),
     ok = ftp:recv(Ftp, "123"),
     [{_, "File /dir/123 downloaded to" ++ _}] = ets:lookup(Tid, ?RETR),
-    ftp_close(Ftp),
+    ftp_close(Config),
+    timer:sleep(10),
     [{_, "User "++?USER++" logged out."}] = ets:lookup(Tid, ?CONN_CLOSE).
 
 
