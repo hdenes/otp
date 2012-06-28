@@ -42,7 +42,7 @@ reinit_active_conn(LastPid) ->
 	reinit_passive_conn(LastPid).
 
 send_msg(MsgType,Msg,State) ->
-	case State#ctrl_conn_data.pasv_pid of
+	case State#ctrl_conn_data.data_pid of
 		none ->
 			{?RESP(500, "Data connection not established."), sameargs};
 		PasvPid ->
@@ -64,10 +64,15 @@ pasv_accept(LSock) ->
 pasv_send_loop(DataSock) ->
 	io:format("PASV send loop\n"), 
     receive
-		{list, {FileNames, FullPath}, Args} ->
+		{list, {FileNames, FullPath, ListType}, Args} ->
 			io:format("PASV send LIST data\n"),
-			TempMsg      = [ ?UTIL:get_file_info(FName,FullPath) || FName <- FileNames],
-			FormattedMsg = string:join(TempMsg, "\r\n") ++ "\r\n",
+			FormattedMsg =
+				case ListType of
+					lst -> 	TempMsg      = [ ?UTIL:get_file_info(FName,FullPath) || FName <- FileNames],
+							string:join(TempMsg, "\r\n");
+					nlst ->
+							string:join(FileNames, "\r\n")
+				end,
 			gen_tcp:send(DataSock, FormattedMsg),
 			transfer_complete(Args);
 		{retr, FileName, Args} ->
@@ -84,11 +89,11 @@ pasv_send_loop(DataSock) ->
 								"Requested action not taken. File unavailable, not found, not accessible"),
 					io:format("File error: ~p, ~p\n",[Reason,FPath])	
 			end;
-		{stor, {FileName, FullClientName}, Args} ->
+		{stor, {FileName, FullClientName, Mode}, Args} ->
 			AbsPath = Args#ctrl_conn_data.chrootdir, %% TODO duplicated code here and before, solution: make_filepath fun
 			RelPath = Args#ctrl_conn_data.curr_path,
 			FPath   = AbsPath ++ "/" ++ RelPath ++ "/" ++ FileName,
-			case receive_and_store(DataSock,FPath) of
+			case receive_and_store(DataSock,FPath, Mode) of
 				ok ->
 					?UTIL:tracef(Args, ?STOR, [RelPath ++ "/" ++ FileName, FullClientName]),
 					transfer_complete(Args); 
@@ -101,10 +106,10 @@ pasv_send_loop(DataSock) ->
 	gen_tcp:close(DataSock).
 
 
-%%	Nothing more just wrapper for gen_tcp:recv
+%%	Receive binaries and store them in a file
 %%	
-receive_and_store(DataSock,FPath) ->
-	{ok, Id} = file:open(FPath,[append,binary]),
+receive_and_store(DataSock,FPath,Mode) ->
+	{ok, Id} = file:open(FPath,[Mode,binary]),
 	case {receive_and_write_chunks(DataSock,Id), file:close(Id)} of
 		{ok, ok} -> ok;
 		_ 		 -> {error, receive_fail}

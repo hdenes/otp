@@ -12,17 +12,20 @@
 %%	pasv_pid ~ PID of the passive connection used by this control connection
 %%		(if exists)
 %%	curr_path ~ current directory path
--record(ctrl_conn_data, {username 		= none, 
-						authed 			= false,
-						control_socket 	= none,
-						pasv_pid 		= none,
-						curr_path 		= "/",
+-record(ctrl_conn_data, {control_socket = none,
 						chrootdir		= none,
-						repr_type		= none,
 						pwd_fun			= none,
 						log_fun			= none,
-						trace_fun		= none
-						}).
+						trace_fun		= none,
+						session_state	= none,
+
+						data_pid 		= none,
+						username 		= none, 
+				  		authed 			= false,
+				  		curr_path 		= "/",
+				  		repr_type		= none,
+						rename_from		= none
+				  		}).
 
 %% Defines
 
