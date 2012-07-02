@@ -182,3 +182,9 @@ get_server_ip() ->
 		{ok, HostInfo} 	->	{ok, hd(HostInfo#hostent.h_addr_list)};
 		{error, _}		->  inet:getaddr(Name, inet)
 	end.
+
+getaddr(Addr) ->
+	case inet:getaddr(Addr,inet) of
+		{error, _} -> inet:getaddr(Addr,inet6);
+		Res 	   -> Res
+	end.

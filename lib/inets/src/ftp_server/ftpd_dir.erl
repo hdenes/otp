@@ -24,8 +24,8 @@
 
 normalize_filepath(Root, Cwd, ReqFile) ->
 	case hd(ReqFile) of
-		$/ -> Root ++ ReqFile;
-		_  -> Root ++ Cwd ++ "/" ++ ReqFile
+		$/ -> slash_correct(Root ++ ReqFile);
+		_  -> slash_correct(Root ++ Cwd ++ "/" ++ ReqFile)
 	end.
 
 set_cwd(Root, Cwd, Req) ->
