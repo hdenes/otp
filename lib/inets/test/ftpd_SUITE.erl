@@ -45,7 +45,8 @@
 	 upload_test/1,
 	 fd_test/1,
 	 log_trace_test/1,
-	 chunk_test/1
+	 chunk_test/1,
+	 split_command_test/1
 	]).
 
 -define(USER, "test").
@@ -69,8 +70,9 @@ all() -> [
 	{group, login_tests},
 	{group, directory_tests},
     	{group, download_upload_tests},
-        {group, ipv6_tests},
-	{group, log_trace_tests}
+	{group, ipv6_tests},
+	{group, log_trace_tests},
+	{group, negative_tests}
     ].
 
 groups() ->
@@ -79,7 +81,8 @@ groups() ->
      {directory_tests, [parallel], [ls_test, ls_dir_test, ls_empty_dir_test, nlist_test, cd_test, pwd_test]},
      {download_upload_tests, [], [download_test, upload_test, chunk_test]},
      {ipv6_tests, [], [ls_test, ls_dir_test, ls_empty_dir_test, cd_test, download_test, upload_test]},
-     {log_trace_tests, [], [log_trace_test]}
+     {log_trace_tests, [], [log_trace_test]},
+     {negative_tests, [], [split_command_test]}
     ].
 
 init_per_suite(Config) ->
@@ -151,6 +154,10 @@ init_per_testcase(upload_test, Config0) ->
     ok = file:write_file(filename:join(PrivDir, DataFileName), <<"ABC">>),
     [{empty_file_name, EmptyFileName}, {data_file_name, DataFileName}| Config];
 
+init_per_testcase(split_command_test, Config0) ->
+    {ok, Sock} = gen_tcp:connect("localhost", 2021, [list, {active, false}, {nodelay, true}]),
+    [{sock, Sock} | Config0];
+
 init_per_testcase(_Case, Config) ->
     ftp_connect(Config).
 
@@ -175,6 +182,10 @@ end_per_testcase(upload_test, Config) ->
     file:delete(filename:join(DataDir, EmptyFileName)),
     file:delete(filename:join(DataDir, DataFileName)),
     ftp_close(Config);
+
+end_per_testcase(split_command_test, Config) ->
+    Sock = ?config(sock, Config),
+    gen_tcp:close(Sock);
 
 end_per_testcase(_Case, Config) ->
     ftp_close(Config).
@@ -380,6 +391,14 @@ log_trace_test(Config) ->
     ftp_close(Config),
     timer:sleep(10),
     [{_, "User "++?USER++" logged out."}] = ets:lookup(Tid, ?CONN_CLOSE).
+
+split_command_test(Config) ->
+    Sock = ?config(sock, Config),
+    {ok, "220 " ++ _} = gen_tcp:recv(Sock, 0),
+    ok = gen_tcp:send(Sock, "US"),
+    timer:sleep(1000),
+    ok = gen_tcp:send(Sock, "ER ftp\r\n"),
+    {ok, "331 " ++ _} = gen_tcp:recv(Sock, 0).
 
 
 logfun(?LOGIN_OK=Event, [UserName]) ->
