@@ -46,7 +46,9 @@
 	 fd_test/1,
 	 log_trace_test/1,
 	 chunk_test/1,
-	 split_command_test/1
+	 split_command_test/1,
+         cd_up_from_root_test/1,
+         cd_over_symlink_test/1
 	]).
 
 -define(USER, "test").
@@ -82,7 +84,7 @@ groups() ->
      {download_upload_tests, [], [download_test, upload_test, chunk_test]},
      {ipv6_tests, [], [ls_test, ls_dir_test, ls_empty_dir_test, cd_test, download_test, upload_test]},
      {log_trace_tests, [], [log_trace_test]},
-     {negative_tests, [], [split_command_test]}
+     {negative_tests, [], [split_command_test, cd_up_from_root_test, cd_over_symlink_test]}
     ].
 
 init_per_suite(Config) ->
@@ -158,6 +160,12 @@ init_per_testcase(split_command_test, Config0) ->
     {ok, Sock} = gen_tcp:connect("localhost", 2021, [list, {active, false}, {nodelay, true}]),
     [{sock, Sock} | Config0];
 
+init_per_testcase(cd_over_symlink_test, Config) ->
+    DataDir = ?config(data_dir, Config),
+    OutLink = filename:join([DataDir, "tmp"]),
+    ok = file:make_symlink("/tmp", OutLink),
+    [{out_link, OutLink} | ftp_connect(Config)];
+
 init_per_testcase(_Case, Config) ->
     ftp_connect(Config).
 
@@ -186,6 +194,11 @@ end_per_testcase(upload_test, Config) ->
 end_per_testcase(split_command_test, Config) ->
     Sock = ?config(sock, Config),
     gen_tcp:close(Sock);
+
+end_per_testcase(cd_over_symlink_test, Config) ->
+    OutLink = ?config(out_link, Config),
+    ok = file:delete(OutLink),
+    ftp_close(Config);
 
 end_per_testcase(_Case, Config) ->
     ftp_close(Config).
@@ -392,6 +405,10 @@ log_trace_test(Config) ->
     timer:sleep(10),
     [{_, "User "++?USER++" logged out."}] = ets:lookup(Tid, ?CONN_CLOSE).
 
+split_command_test(doc) ->
+    ["Check that the FTP server handles commands split by TCP"];
+split_command_test(suite) ->
+    [];
 split_command_test(Config) ->
     Sock = ?config(sock, Config),
     {ok, "220 " ++ _} = gen_tcp:recv(Sock, 0),
@@ -400,6 +417,37 @@ split_command_test(Config) ->
     ok = gen_tcp:send(Sock, "ER ftp\r\n"),
     {ok, "331 " ++ _} = gen_tcp:recv(Sock, 0).
 
+cd_up_from_root_test(doc) ->
+    ["Check that the FTP server doesn't handle changing directory up from root"];
+cd_up_from_root_test(suite) ->
+    [];
+cd_up_from_root_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, ".."),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "../.."),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "dir/../.."),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "./.."),
+    {ok, "/"} = ftp:pwd(Ftp).
+
+cd_over_symlink_test(doc) ->
+    ["Check that the FTP server doesn't handle following symlinks out from the chroot"];
+cd_over_symlink_test(suite) ->
+    [];
+cd_over_symlink_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "tmp"),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "/tmp"),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "./tmp"),
+    {ok, "/"} = ftp:pwd(Ftp),
+    {error, _} = ftp:cd(Ftp, "dir/../tmp"),
+    {ok, "/"} = ftp:pwd(Ftp).
 
 logfun(?LOGIN_OK=Event, [UserName]) ->
     ets:insert(logtrace, {Event, "User "++UserName++" successfully logged in."});
