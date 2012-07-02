@@ -56,17 +56,17 @@
 %% all(Arg) -> [Doc] | [Case] | {skip, Comment}
 %% Arg - doc | suite
 %% Doc - string()
-%% Case - atom() 
-%%	Name of a test case function. 
+%% Case - atom()
+%%	Name of a test case function.
 %% Comment - string()
 %% Description: Returns documentation/test cases in this test suite
-%%		or a skip tuple if the platform is not supported.  
+%%		or a skip tuple if the platform is not supported.
 %%--------------------------------------------------------------------
 suite() -> [].
 
 all() -> [
-	{group, basic_tests}, 
-	{group, login_tests}, 
+	{group, basic_tests},
+	{group, login_tests},
 	{group, directory_tests},
     	{group, download_upload_tests},
         {group, ipv6_tests},
@@ -96,27 +96,25 @@ init_per_group(log_trace_tests, Config) ->
     TableOwner = spawn(fun() -> receive test_finished -> ok end end),
     Tid = ets:new(logtrace, [public, named_table, {heir, TableOwner, none}]),
     DataDir = ?config(data_dir, Config),
-    {ok, Pid} = inets:start(ftpd, [{port, 2021}, 
-	    			   {pwd_fun, fun pwdfun/2}, 
+    {ok, Pid} = inets:start(ftpd, [{port, 2021},
+	    			   {pwd_fun, fun pwdfun/2},
 				   {chrootDir, DataDir},
 			       	   {log_fun, fun logfun/2},
 			       	   {trace_fun, fun tracefun/2}]),
     [{ftpd_pid, Pid}, {ftp_server_address, "localhost"},
      {table_owner, TableOwner}, {table, Tid} | Config];
 
-init_per_group(ipv6_tests, Config) -> 
+init_per_group(ipv6_tests, Config) ->
     DataDir = ?config(data_dir, Config),
     FtpHost = {0,0,0,0,0,0,0,1},
-    {ok, Pid} = inets:start(ftpd, [{bind_address, FtpHost}, 
-	    			   {port, 2021}, 
-				   {pwd_fun, fun pwdfun/2}, 
+    {ok, Pid} = inets:start(ftpd, [{bind_address, FtpHost},
+	    			   {port, 2021},
+				   {pwd_fun, fun pwdfun/2},
 				   {chrootDir, DataDir}]),
 			   [{ftpd_pid, Pid}, {ftp_server_address, FtpHost} | Config];
 
-init_per_group(_Group, Config) -> 
+init_per_group(_Group, Config) ->
     DataDir = ?config(data_dir, Config),
-	io:write(almalma),
-	io:write(DataDir),
     {ok, Pid} = inets:start(ftpd, [{port, 2021}, {pwd_fun, fun pwdfun/2}, {chrootDir, DataDir}]),
     [{ftpd_pid, Pid}, {ftp_server_address, "localhost"} | Config].
 
@@ -280,7 +278,6 @@ ls_test(Config) ->
 	[Dir, Empty, EmptyDir] = Lst,
     match = re:run(Dir, "^d.*\sdir$", [{capture, none}]),
     match = re:run(Empty, "^-.*\s\0\s+\S+\s+\S+\s+\S+\s+\d+:\d+\s+empty$", [{capture, none}]),
-	io:write(Empty),
     match = re:run(EmptyDir, "^d.*\sempty_dir$", [{capture, none}]).
 
 ls_dir_test(doc) ->
@@ -375,7 +372,7 @@ log_trace_test(Config) ->
     PrivDir = ?config(priv_dir, Config),
     ftp:lcd(Ftp, PrivDir),
     ok = ftp:cd(Ftp, "dir"),
-    [{_, "Changed directory to dir"}] = ets:lookup(Tid, ?CWD),
+    [{_, "Changed directory to /dir"}] = ets:lookup(Tid, ?CWD),
     _ = ftp:ls(Ftp),
     [{_, "Listed directory /dir"}] = ets:lookup(Tid, ?LIST),
     ok = ftp:recv(Ftp, "123"),
@@ -411,7 +408,7 @@ f(Format, Params) ->
 ftp_connect(Config) ->
     FtpHost = ?config(ftp_server_address, Config),
     IpFamily = case inet:getaddr(FtpHost, inet) of
-	{ok, _} -> 
+	{ok, _} ->
 	    [];
 	_ -> % this is just test code, I suppose only exiting addresses are used
 	    [{ipfamily, inet6}]
