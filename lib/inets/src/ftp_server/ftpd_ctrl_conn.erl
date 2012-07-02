@@ -41,7 +41,7 @@ new_connection(Sock, Args) ->
 	?UTIL:send_reply(Sock, 220, "Hello"),
 
 	ConnData = construct_conn_data(Args, Sock),
-	do_recv(Sock, ConnData).
+	do_recv(Sock, ConnData, <<>>).
 
 construct_conn_data(Args, Sock) ->
 	RootDir = proplists:get_value(chrootDir, Args, ?DEFAULT_ROOT_DIR),
@@ -61,16 +61,31 @@ fold_args(_, Data) ->
 	Data.
 
 %% Control Connection - Wait for incoming messages
--spec do_recv(Sock :: socket(), Args :: connstate()) -> ok.
-do_recv(Sock, Args) ->
+-spec do_recv(Sock :: socket(),Args :: connstate(),PrevData :: binary()) -> ok.
+do_recv(Sock, Args, PrevData) ->
+	?LOG("do_recv prev data: ~p\n", [PrevData]),
 	case gen_tcp:recv(Sock, 0) of
 		{ok, Data} ->
-			{Command, Msg} = ?UTIL:packet_to_tokens(Data),
-			?LOG("[~p-Recv]: ~p - ~p\n", [self(), Command, Msg]),
-			NewArgs = process_message(Sock, Command, Msg, Args),
-			after_reply(Sock, Command, NewArgs);
+			Splitted = re:split(Data, <<"\r\n">>),
+			handle_splitted_stream(Splitted, PrevData, Sock, Args);
 		{error, closed} -> ok
 	end.
+
+handle_splitted_stream([Data], PrevData, Sock, Args) ->
+	do_recv(Sock, Args, <<PrevData/binary, Data/binary>>);
+
+handle_splitted_stream([Data|T], PrevData, Sock, Args) ->
+	{Command, Msg} = ?UTIL:packet_to_tokens(<<PrevData/binary, Data/binary>>),
+	?LOG("[~p-Recv]: ~p - ~p\n", [self(), Command, Msg]),
+	NewArgs = process_message(Sock, Command, Msg, Args),
+	case can_continue_recv(Command) of
+		true  -> handle_splitted_stream(T, <<>>, Sock, NewArgs);
+		false -> close_socket(Sock)
+	end;
+
+handle_splitted_stream([], Prev, Sock, Args) ->
+	io:format("Error: recv failed\n"),
+	do_recv(Sock, Args, Prev).
 
 process_message(Sock, Command, Msg, Args) ->
 	case ?UTIL:check_auth(Command, Args) of
@@ -93,10 +108,10 @@ process_message(Sock, Command, Msg, Args) ->
 -spec handle_command(Command :: bitstring(), Message :: [bitstring()],
 	Args :: connstate()) -> {reply(), argschange()}.
 
-handle_command(<<"NOOP">>, _, _) ->
+handle_command(<<"NOOP">>, [], _) ->
 	mk_rep(200, "NOOP command successful");
 
-handle_command(<<"QUIT">>, _, Args) ->
+handle_command(<<"QUIT">>, [], Args) ->
 	User = Args#ctrl_conn_data.username,
 	?UTIL:logf(Args, ?CONN_CLOSE, [User]),
 	mk_rep(221, "Goodbye.");
@@ -199,16 +214,13 @@ handle_command(<<"PWD">>, [], Args) ->
 	RspStr = "\""++Args#ctrl_conn_data.curr_path++"\" is the current directory",
 	mk_rep(257, RspStr);
 
-handle_command(<<"PWD">>, _, _) ->	% TODO: generalize
-	mk_rep(501, "Invalid number of arguments");
-
 handle_command(<<"STRU">>, [Type], _) ->
 	case ?UTIL:bin_to_upper(Type) of
 		<<"F">> -> mk_rep(200, "Structure set to F");
 		_       -> mk_rep(504, "Unsupported structure type")
 	end;
 
-handle_command(<<"PASV">>, _, Args) ->
+handle_command(<<"PASV">>, [], Args) ->
 	case ?UTIL:get_server_ip() of
 		{ok, Address} ->
 			ftpd_data_conn:reinit_data_conn(Args),
@@ -236,10 +248,7 @@ handle_command(<<"PORT">>, [BinArg1], Args) ->
 			end
 	end;
 
-handle_command(<<"PORT">>, _, _) ->
-	mk_rep(501, "Illegal PORT command");
-
-handle_command(<<"EPSV">>, _, Args) ->
+handle_command(<<"EPSV">>, [], Args) ->
 	ftpd_data_conn:reinit_data_conn(Args),
 	{PasvPid, {ok, Port}} = ftpd_data_conn:start_passive_mode(inet6),
 	RspStr = "Entering Extended Passive Mode (|||"++integer_to_list(Port)++"|)",
@@ -249,7 +258,7 @@ handle_command(<<"EPSV">>, _, Args) ->
 %% format : EPRT<space><d><net-prt><d><net-addr><d><tcp-port><d>
 handle_command(<<"EPRT">>, [BinArg1], Args) ->
 	Params = binary_to_list(BinArg1),
-	IpPortParams = string:tokens(Params,"|"),
+	IpPortParams = string:tokens(Params, "|"),
 	case ?UTIL:eprtlist2portip(IpPortParams) of
 		{error, _}   -> mk_rep(500, "EPRT command failed (2)");
 		{Addr, Port} ->
@@ -261,9 +270,6 @@ handle_command(<<"EPRT">>, [BinArg1], Args) ->
 				{error, _} -> mk_rep(500, "EPRT command failed (1)")
 			end
 	end;
-
-handle_command(<<"EPRT">>, _, _) ->
-	mk_rep(501, "Illegal EPRT command");
 
 handle_command(<<"LIST">>, ParamsBin, Args) ->
 	DirToList = ?UTIL:binlist_to_string(ParamsBin),
@@ -290,7 +296,6 @@ handle_command(<<"NLST">>, ParamsBin, Args) ->
 		{error, _} ->
 			mk_rep(450, DirToList ++ ": No such file or directory")
 	end;
-
 
 handle_command(<<"REIN">>, [], Args) ->
 	NewArgs = Args#ctrl_conn_data{ authed = false, username = none },
@@ -362,7 +367,10 @@ handle_command(<<"">>, _, _) ->
 	mk_rep(500, "Invalid command: try being more creative");
 
 handle_command(Command, _, _) ->
-	mk_rep(500, binary_to_list(Command) ++ " not implemented").
+	case lists:member(Command, ?UTIL:implemented_msgs()) of
+		true  -> mk_rep(501, "Invalid number of arguments");
+		false -> mk_rep(500, binary_to_list(Command) ++ " not implemented")
+	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Control functions
@@ -379,9 +387,9 @@ handle_reply(_, noreply) ->
 handle_reply(Sock, {reply, Code, Message}) ->
 	?UTIL:send_reply(Sock, Code, Message).
 
-%% Control behaviour after replying to a message
-after_reply(Sock, <<"QUIT">>, _) ->
+can_continue_recv(Command) ->
+	Command /= <<"QUIT">>.
+
+close_socket(Sock) ->
 	?LOG("---------------- CONNECTION CLOSE ----------------\n"),
-	gen_tcp:close(Sock);
-after_reply(Sock, _, Args) ->
-	do_recv(Sock, Args).
+	gen_tcp:close(Sock).

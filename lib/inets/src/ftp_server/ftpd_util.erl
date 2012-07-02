@@ -21,7 +21,7 @@
 -module(ftpd_util).
 
 -export([format_address/2, packet_to_tokens/1, check_repr_type/1,
-         response/2, send_reply/3, check_auth/2,
+         response/2, send_reply/3, check_auth/2, implemented_msgs/0,
          get_file_info/2, get_file_name/1, get_full_path/1,
          transformfrom/2, transformto/2,
          logf/3, tracef/3,
@@ -52,7 +52,8 @@ packet_to_tokens(Data) ->
 	SplittedData = re:split(TrimmedData, " "),
 	case SplittedData of
 		[Command | Msg] -> {bin_to_upper(Command), Msg};
-		_               -> io:format("Error: packet parse failed\n"), {"", []}
+		_               -> io:format("Error: packet parse failed\n"),
+                           {<<"">>, []}
 	end.
 
 %% check for TYPE command arguments
@@ -60,14 +61,27 @@ check_repr_type([Type])     -> lists:member(Type, ["I","A"]);
 check_repr_type(["L", Arg]) -> Arg == "8";
 check_repr_type(_)          -> false.
 
+%% All implemented commands
+implemented_msgs() ->
+	[<<"NOOP">>, <<"QUIT">>, <<"USER">>, <<"PASS">>, <<"TYPE">>,
+	 <<"SIZE">>, <<"RETR">>, <<"STOR">>, <<"APPE">>, <<"CWD">>,
+	 <<"PWD">>,  <<"STRU">>, <<"PASV">>, <<"PORT">>, <<"EPSV">>,
+	 <<"EPRT">>, <<"LIST">>, <<"NLST">>, <<"REIN">>, <<"MKD">>,
+	 <<"RMD">>,  <<"DELE">>, <<"RNFR">>, <<"RNTO">>].
+
 %% Messages that does not require USER and PASS before
-no_auth_msgs() -> [<<"USER">>, <<"PASS">>, <<"QUIT">>, <<"NOOP">>, <<"ACCT">>,
-                   <<"TYPE">>, <<"FEAT">>].
+no_auth_msgs() ->
+	[<<"USER">>, <<"PASS">>, <<"QUIT">>, <<"NOOP">>, <<"ACCT">>,
+	 <<"TYPE">>, <<"FEAT">>].
 
 check_auth(Command, Args) ->
-	case {lists:member(Command, no_auth_msgs()), Args#ctrl_conn_data.authed} of
-		{false, false} -> bad;
-		_              -> ok
+	Impl   = lists:member(Command, implemented_msgs()),
+	NoAuth = lists:member(Command, no_auth_msgs()),
+	Authed = Args#ctrl_conn_data.authed,
+	case {Impl, NoAuth, Authed} of
+		{false, _,    _    } -> ok;
+		{true, false, false} -> bad;
+		_                    -> ok
 	end.
 
 %% Construct tuple for response
