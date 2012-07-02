@@ -25,7 +25,7 @@
          get_file_info/2, get_file_name/1, get_full_path/1,
          transformfrom/2, transformto/2,
          logf/3, tracef/3,
-         list2portip/1, eprtlist2portip/1, get_server_ip/0,
+         list2portip/1, eprtlist2portip/1, get_server_ip/0, getaddr/1,
          bin_to_upper/1, binlist_to_string/1]).
 
 -include_lib("ftpd_rep.hrl").
