@@ -48,7 +48,13 @@
 	 chunk_test/1,
 	 split_command_test/1,
          cd_up_from_root_test/1,
-         cd_over_symlink_test/1
+         cd_over_symlink_test/1,
+         unreadable_dir_test/1,
+         unreadable_file_test/1,
+         unwritable_dir_test/1,
+         unwritable_file_test/1,
+         read_dir_test/1,
+         write_dir_test/1
 	]).
 
 -define(USER, "test").
@@ -65,7 +71,7 @@
 %% Description: Returns documentation/test cases in this test suite
 %%		or a skip tuple if the platform is not supported.
 %%--------------------------------------------------------------------
-suite() -> [].
+suite() -> [{timetrap, {seconds, 30}}].
 
 all() -> [
 	{group, basic_tests},
@@ -84,7 +90,9 @@ groups() ->
      {download_upload_tests, [], [download_test, upload_test, chunk_test]},
      {ipv6_tests, [], [ls_test, ls_dir_test, ls_empty_dir_test, cd_test, download_test, upload_test]},
      {log_trace_tests, [], [log_trace_test]},
-     {negative_tests, [], [split_command_test, cd_up_from_root_test, cd_over_symlink_test]}
+     {negative_tests, [], [split_command_test, cd_up_from_root_test, cd_over_symlink_test,
+         unreadable_dir_test, unreadable_file_test, unwritable_dir_test, unwritable_file_test,
+         read_dir_test, write_dir_test]}
     ].
 
 init_per_suite(Config) ->
@@ -166,6 +174,35 @@ init_per_testcase(cd_over_symlink_test, Config) ->
     ok = file:make_symlink("/tmp", OutLink),
     [{out_link, OutLink} | ftp_connect(Config)];
 
+init_per_testcase(unreadable_dir_test, Config) ->
+    DataDir = ?config(data_dir, Config),
+    UnreadDir = filename:join([DataDir, "tmp"]),
+    ok = file:make_dir(UnreadDir),
+    % actually the execution bit is important, but nevertheless, remove all rights
+    ok = file:change_mode(UnreadDir, 0),
+    [{un_name, UnreadDir} | ftp_connect(Config)];
+
+init_per_testcase(unreadable_file_test, Config) ->
+    DataDir = ?config(data_dir, Config),
+    UnreadFile = filename:join([DataDir, "tmp"]),
+    ok = file:write_file(UnreadFile, <<"abc">>),
+    ok = file:change_mode(UnreadFile, 0),
+    [{un_name, UnreadFile} | ftp_connect(Config)];
+
+init_per_testcase(unwritable_dir_test, Config) ->
+    DataDir = ?config(data_dir, Config),
+    UnwriteDir = filename:join([DataDir, "tmp"]),
+    ok = file:make_dir(UnwriteDir),
+    ok = file:change_mode(UnwriteDir, 8#00400),
+    [{un_name, UnwriteDir} | ftp_connect(Config)];
+
+init_per_testcase(unwritable_file_test, Config) ->
+    DataDir = ?config(data_dir, Config),
+    UnwriteFile = filename:join([DataDir, "tmp"]),
+    ok = file:write_file(UnwriteFile, <<"abc">>),
+    ok = file:change_mode(UnwriteFile, 8#00400),
+    [{un_name, UnwriteFile} | ftp_connect(Config)];
+
 init_per_testcase(_Case, Config) ->
     ftp_connect(Config).
 
@@ -198,6 +235,20 @@ end_per_testcase(split_command_test, Config) ->
 end_per_testcase(cd_over_symlink_test, Config) ->
     OutLink = ?config(out_link, Config),
     ok = file:delete(OutLink),
+    ftp_close(Config);
+
+end_per_testcase(UT, Config) when UT =:= unreadable_dir_test;
+                                  UT =:= unwritable_dir_test ->
+    UnName = ?config(un_name, Config),
+    ok = file:change_mode(UnName, 8#00666),
+    ok = file:del_dir(UnName),
+    ftp_close(Config);
+
+end_per_testcase(UT, Config) when UT =:= unreadable_file_test; 
+                                  UT =:= unwritable_file_test ->
+    UnName = ?config(un_name, Config),
+    ok = file:change_mode(UnName, 8#00666),
+    ok = file:delete(UnName),
     ftp_close(Config);
 
 end_per_testcase(_Case, Config) ->
@@ -448,6 +499,59 @@ cd_over_symlink_test(Config) ->
     {ok, "/"} = ftp:pwd(Ftp),
     {error, _} = ftp:cd(Ftp, "dir/../tmp"),
     {ok, "/"} = ftp:pwd(Ftp).
+
+unreadable_dir_test(doc) ->
+    ["Check that the FTP server doesn't list unreadable directory"];
+unreadable_dir_test(suite) ->
+    [];
+unreadable_dir_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    UnreadDir = ?config(un_name, Config),
+    {error, _} = ftp:nlist(Ftp, UnreadDir).
+
+unreadable_file_test(doc) ->
+    ["Check that the FTP server doesn't let download an unreadable file"];
+unreadable_file_test(suite) ->
+    [];
+unreadable_file_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    UnreadFile = ?config(un_name, Config),
+    {error, _} = ftp:recv(Ftp, UnreadFile).
+
+unwritable_dir_test(doc) ->
+    ["Check that the FTP server doesn't let write to an unwritable directory"];
+unwritable_dir_test(suite) ->
+    [];
+unwritable_dir_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    UnwriteDir = ?config(un_name, Config),
+    {error, _} = ftp:send_bin(Ftp, <<"abc">>, filename:join([UnwriteDir, "tmp"])).
+
+unwritable_file_test(doc) ->
+    ["Check that the FTP server doesn't let write to an unwritable file"];
+unwritable_file_test(suite) ->
+    [];
+unwritable_file_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    UnwriteFile = ?config(un_name, Config),
+    {error, _} = ftp:send_bin(Ftp, <<"abc">>, UnwriteFile).
+
+read_dir_test(doc) ->
+    ["Check that the FTP server doesn't let download a directory instead of a file"];
+read_dir_test(suite) ->
+    [];
+read_dir_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    {error, _} = ftp:recv(Ftp, "dir").
+
+write_dir_test(doc) ->
+    ["Check that the FTP server doesn't let upload a directory instead of a file"];
+write_dir_test(suite) ->
+    [];
+write_dir_test(Config) ->
+    Ftp = ?config(ftp_pid, Config),
+    {error, _} = ftp:send_bin(Ftp, <<"abc">>, "dir").
+
 
 logfun(?LOGIN_OK=Event, [UserName]) ->
     ets:insert(logtrace, {Event, "User "++UserName++" successfully logged in."});
