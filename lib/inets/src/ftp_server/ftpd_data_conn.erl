@@ -32,7 +32,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 start_active_mode(Ipv, Addr, Port) ->
-	io:format("Active mode begin, port: ~p\n", [Port]),
+	?LOG("Active mode begin, port: ~p\n", [Port]),
 	SockArgs = [binary, {packet, 0}, {active, false}] ++ ipv_argl(Ipv),
 	case gen_tcp:connect(Addr, Port, SockArgs) of %% TODO error handling
 		{ok, Sock} -> {ok, spawn(?MODULE, actv_accept, [Sock])};
@@ -40,12 +40,12 @@ start_active_mode(Ipv, Addr, Port) ->
 	end.
 
 start_passive_mode(Ipv) ->
-	io:format("Passive mode begin\n"),
+	?LOG("Passive mode begin\n"),
 	SockArgs    = [binary, {packet, 0}, {active, false}] ++ ipv_argl(Ipv),
 	{ok, LSock} = gen_tcp:listen(0, SockArgs),
 	Pid         = spawn(?MODULE, pasv_accept, [LSock]),
 	Port        = inet:port(LSock),
-	io:format("[~p]: Passive mode started, port: ~p\n", [Pid, Port]),
+	?LOG("[~p]: Passive mode started, port: ~p\n", [Pid, Port]),
 	{Pid, Port}.
 
 ipv_argl(inet4) -> [];
@@ -67,21 +67,21 @@ send_msg(MsgType, Msg, State) ->
 	end.
 
 actv_accept(DataSock) ->
-	io:format("ACTV accept start\n"),
+	?LOG("ACTV accept start\n"),
 	data_conn_main(DataSock).
 
 pasv_accept(LSock) ->
-	io:format("PASV accept start\n"),
+	?LOG("PASV accept start\n"),
 	case gen_tcp:accept(LSock) of
 		{ok, Sock} -> data_conn_main(Sock);
 		_          -> err_tcp
 	end.
 
 data_conn_main(DataSock) ->
-	io:format("PASV send loop\n"),
-    receive
+	?LOG("PASV send loop\n"),
+	receive
 		{list, {FileNames, Path, ListType}, Args} ->
-			io:format("PASV send LIST data\n"),
+			?LOG("PASV send LIST data\n"),
 			TempMsg =
 				case ListType of
 					lst  -> [?UTIL:get_file_info(FN, Path) || FN <- FileNames];
@@ -96,14 +96,14 @@ data_conn_main(DataSock) ->
 			FPath   = ftpd_dir:normalize_filepath(AbsPath,RelPath,FileName),
 			case file:read_file(FPath) of
 				{ok, Bin} ->
-					SendBin = ?UTIL:transformto(Bin,Args#ctrl_conn_data.repr_type),
-					gen_tcp:send(DataSock, SendBin),
+					BinT = ?UTIL:transformto(Bin,Args#ctrl_conn_data.repr_type),
+					gen_tcp:send(DataSock, BinT),
 					TraceParams = [RelPath ++ "/" ++ FileName, FileName],
 					?UTIL:tracef(Args, ?RETR, TraceParams), %% TODO 2nd param ??
 					transfer_complete(Args);
 				{error, Reason} ->
 					RespStr = "Requested action not taken. File unavailable, "
-                              "not found, not accessible",
+					          "not found, not accessible",
 					send_ctrl_response(Args, 550, RespStr),
 					io:format("File error: ~p, ~p\n", [Reason, FPath])
 			end;
@@ -111,37 +111,38 @@ data_conn_main(DataSock) ->
 			AbsPath = Args#ctrl_conn_data.chrootdir,
 			RelPath = Args#ctrl_conn_data.curr_path,
 			FPath   = ftpd_dir:normalize_filepath(AbsPath,RelPath,FileName),
-			case receive_and_store(DataSock,FPath, Mode, Args#ctrl_conn_data.repr_type) of
+			Repr    = Args#ctrl_conn_data.repr_type,
+			case receive_and_store(DataSock, FPath, Mode, Repr) of
 				ok ->
-					RelPath     = Args#ctrl_conn_data.curr_path,
 					TraceParams = [RelPath ++ "/" ++ FileName, FullClientName],
 					?UTIL:tracef(Args, ?STOR, TraceParams),
 					transfer_complete(Args);
 				{error, Reason} ->
+					io:format("File receive error: ~p\n", [Reason]),
 					RespStr = "Requested action not taken. File unavailable, "
-                              "not found, not accessible",
-					send_ctrl_response(Args, 550, RespStr),
-					io:format("File receive error: ~p\n",[Reason])
+					          "not found, not accessible",
+					send_ctrl_response(Args, 550, RespStr)
 			end
 	end,
+	?LOG("PASV send loop end\n"),
 	gen_tcp:close(DataSock).
 
-%%	Receive binaries and store them in a file
+%% Receive binaries and store them in a file
 receive_and_store(DataSock, FPath, Mode, ReprType) ->
 	{ok, Id} = file:open(FPath, [Mode, binary]),
 	case {receive_and_write_chunks(DataSock, Id, ReprType), file:close(Id)} of
 		{ok, ok} -> ok;
-		_ 		 -> {error, receive_fail}
+		_        -> {error, receive_fail}
 	end.
 
 receive_and_write_chunks(DataSock, DevId, ReprType) ->
-    case gen_tcp:recv(DataSock, 0) of
-        {ok, Data} ->
+	case gen_tcp:recv(DataSock, 0) of
+		{ok, Data} ->
 			file:write(DevId, ?UTIL:transformfrom(Data, ReprType)),
 			receive_and_write_chunks(DataSock, DevId, ReprType);
-        {error, closed} -> ok;
-		{error, Reason}	-> {error, Reason}
-    end.
+		{error, closed} -> ok;
+		{error, Reason} -> {error, Reason}
+	end.
 
 send_ctrl_response(Args, Command, Msg) ->
 	case Args#ctrl_conn_data.control_socket of
@@ -153,5 +154,6 @@ transfer_complete(Args) ->
 	case Args#ctrl_conn_data.control_socket of
 		none ->
 			io:format("Data connection failed to look up control connection\n");
-		ControlSock -> ?UTIL:send_reply(ControlSock, 226, "Transfer complete")
+		ControlSock ->
+			?UTIL:send_reply(ControlSock, 226, "Transfer complete")
 	end.

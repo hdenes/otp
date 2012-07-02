@@ -50,13 +50,18 @@ init(Args) ->
 	Args1 = BaseArgs ++
 		case proplists:lookup(bind_address, Args) of
 			{bind_address, Addr={_,_,_,_,_,_,_,_}} -> [{ip, Addr}, inet6];
-			{bind_address, Addr}                   -> [{ip, Addr}];
+			{bind_address, Addr={_,_,_,_}}         -> [{ip, Addr}];
+			{bind_address, Addr}                   ->
+				case ?UTIL:getaddr(Addr) of
+					{ok, IP} -> [{ip, IP}];
+					_		 -> []
+				end;
 			none                                   -> []
 		end,
 	Args2 = Args1 ++
 		case proplists:lookup(fd, Args) of
 			none   -> [];
-			FdProp -> io:format("Fd connection\n"), [FdProp]
+			FdProp -> [FdProp]
 		end,
 
 	{ok, LSock} = gen_tcp:listen(Port, Args2),
@@ -85,7 +90,7 @@ handle_cast(_Req, State) -> {noreply, State}.
 %terminate(shutdown, State) removed, same body
 %terminate({shutdown, _Reason}, State)
 terminate(_Reason, State) ->
-	io:format("Listener terminated\n"),
+	?LOG("Listener terminated\n"),
 	LSock = element(3, State),
 	gen_tcp:close(LSock),
 	ok.

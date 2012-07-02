@@ -294,7 +294,7 @@ connect_v6_test(doc) ->
 connect_v6_test(suite) ->
     [];
 connect_v6_test(_Config) ->
-    {ok, Pid} = inets:start(ftpd, [{bind_address, {0,0,0,0,0,0,0,1}}, {port, 2021}]),
+    {ok, Pid} = inets:start(ftpd, [{bind_address, "::1"}, {port, 2021}]),
     try
 	{ok, Ftp} = ftp:open({0,0,0,0,0,0,0,1}, [{port,2021}, {ipfamily, inet6}]),
 	ok = ftp:close(Ftp)

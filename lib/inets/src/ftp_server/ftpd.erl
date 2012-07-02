@@ -24,11 +24,11 @@
 -export([start_standalone/1, start_service/1, stop_service/1,
          services/0, service_info/1]).
 
--type host()		::	inet:ip_address() |
-						inet:hostname() |
-			   			any. 						% partly copied from ssl_internal.hrl
+-type host()		:: inet:ip_address() |
+					   inet:hostname() |
+					   any.							% partly copied from ssl_internal.hrl
 -type path()		:: string().					% copied from ssl.erl
--type ftp_option() 	:: {bind_address, host()} |		% default is any
+-type ftp_option()	:: {bind_address, host()} |		% default is any
 					   {port, inet:port_number()} |	% default is 21
 					   {anonymous, boolean()} |		% if anonymous is used, no need for pwd_fun
 					   {chrootdir, path()} |		% accept %username too!
@@ -37,7 +37,7 @@
 					   {max_clients, integer()} |	% httpd has this option...
 					   {trace_fun, fun()} |			% traces FTP commands, file accesses
 					   {log_fun, fun()}.			% logs login attempts, there should be a default to log to syslog
--type ftp_config() 	:: [ftp_option()].
+-type ftp_config()	:: [ftp_option()].
 
 -spec start_standalone(Config :: ftp_config()) -> {ok, pid()} | {error, Reason :: term()}.
 start_standalone(Config) ->
@@ -55,16 +55,16 @@ stop_service(_) ->
 
 -spec services() -> [{ftpd, pid()}].
 services() ->
-    [{ftpd, CPid} || {_, CPid, _, _} <- supervisor:which_children(ftpd_sup)].
+	[{ftpd, CPid} || {_, CPid, _, _} <- supervisor:which_children(ftpd_sup)].
 
 -spec service_info(Pid :: pid()) ->
-    {ok, [{Property :: term(), Value :: term()}]} | {error, Reason :: term()}.
+	{ok, [{Property :: term(), Value :: term()}]} | {error, Reason :: term()}.
 service_info(Pid) ->
 	try [CPid || {_, CPid, _, _} <- supervisor:which_children(ftpd_sup)] of
 		Children -> get_child_info(Pid, Children)
-    catch
+	catch
 		exit:{noproc, _} -> {error, service_not_available}
-    end.
+	end.
 
 get_child_info(Pid, Children) ->
 	case lists:member(Pid, Children) of

@@ -25,30 +25,9 @@
 -ifndef(ftpd_rep_hrl).
 -define(ftpd_rep_hrl, true).
 
-%% Control connection data
-%%	username     ~ actual username set by the user (using USER <loginname>)
-%%	authed       ~ indicates whether a proper password
-%%                 was given for the actual username
-%%	control_sock ~ socket of the control connection
-%%	pasv_pid     ~ PID of the passive connection used by this control connection
-%%		           (if exists)
-%%	curr_path    ~ current directory path
--record(ctrl_conn_data, {control_socket = none,
-						chrootdir		= none,
-						pwd_fun			= none,
-						log_fun			= none,
-						trace_fun		= none,
-						session_state	= none,
-
-						data_pid 		= none,
-						username 		= none,
-				  		authed 			= false,
-				  		curr_path 		= "/",
-				  		repr_type		= ["I"],
-						rename_from		= none
-				  		}).
-
 %% Defines
+
+-define(LOG_MODE, true).
 
 -define(UTIL, ftpd_util).
 -define(RESP(Comm, Msg), ?UTIL:response(Comm, Msg)).
@@ -57,6 +36,45 @@
 -define(DEFAULT_ROOT_DIR, element(2, file:get_cwd())).
 -define(DEFAULT_PWD_FUN,  fun(_,_) -> not_authorized end).
 -define(DEFAULT_LOG_FUN,  fun(_,_) -> ok end).
+
+-ifdef(LOG_MODE).
+ -define(LOG(Str, Args), io:format(Str, Args)).
+ -define(LOG(Str), io:format(Str)).
+-else.
+ -define(LOG(Str, Args), ok).
+ -define(LOG(Str), ok).
+-endif.
+
+-define(is_anon(Args), ((Args#ctrl_conn_data.username == "anonymous") or
+                        (Args#ctrl_conn_data.username == "ftp")) and
+                       (Args#ctrl_conn_data.allow_anonymous)).
+
+%% Control connection data
+%%  username     ~ actual username set by the user (using USER <loginname>)
+%%  authed       ~ indicates whether a proper password
+%%                 was given for the actual username
+%%  control_sock ~ socket of the control connection
+%%  pasv_pid     ~ PID of the passive connection used by this control connection
+%%                 (if exists)
+%%  curr_path    ~ current directory path
+
+-record(ctrl_conn_data, {
+						chrootdir		= none,
+						pwd_fun			= ?DEFAULT_PWD_FUN,
+						log_fun			= ?DEFAULT_LOG_FUN,
+						trace_fun		= ?DEFAULT_LOG_FUN,
+						allow_anonymous	= false,
+
+						session_state	= none,
+						control_socket	= none,
+
+						data_pid		= none,
+						username		= none,
+						authed			= false,
+						curr_path		= "/",
+						repr_type		= ["I"],
+						rename_from		= none
+						}).
 
 %% Types
 
@@ -74,5 +92,3 @@
 -type connstate()  :: [connitem()].
 
 -endif.
-
-

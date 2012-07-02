@@ -24,12 +24,12 @@
 
 normalize_filepath(Root, Cwd, ReqFile) ->
 	case hd(ReqFile) of
-		$/ -> Root ++ ReqFile;
-		_  -> Root ++ Cwd ++ "/" ++ ReqFile
+		$/ -> slash_correct(Root ++ ReqFile);
+		_  -> slash_correct(Root ++ Cwd ++ "/" ++ ReqFile)
 	end.
 
 set_cwd(Root, Cwd, Req) ->
-	case lists:prefix("./", Req)  of
+	case lists:prefix("./", Req) of
 		true ->
 			NewReq = slash_correct(dot_correct(lists:nthtail(1, Req))),
 			cwd_fun(Root, Cwd, NewReq);
@@ -80,23 +80,30 @@ cwd_fun(Root, CwdAbsName, Req) ->
 	NewCwd = step_back(CwdAbsName, Acc),
 	case step_forward(Root, NewCwd, Index, NewReq) of
 		{ok, {NewAbsName, NextReq}} -> cwd_fun(Root, NewAbsName, NextReq);
+		{ok, ReturnName} -> {ok, ReturnName};
 		Error -> Error
 	end.
 
 step_forward(Root, CwdAbsName, 0, Req) ->
 	NewAbsName = string:join([CwdAbsName, Req], ""),
-	case filelib:is_dir(string:join([Root, NewAbsName], "")) of
-		true -> {ok, {NewAbsName, ""}};
-		false -> {error, invalid_dir}
+	CorrectedAbsName = slash_correct(string:join([Root, NewAbsName], "")),
+	case {file:read_link(CorrectedAbsName), filelib:is_dir(CorrectedAbsName)} of
+		{{ok, NewPath}, _} -> set_cwd(Root, CwdAbsName, NewPath);
+					%{ok, {CwdAbsName, CorrectedNextReq}};
+		{{error, _}, true} -> {ok, {NewAbsName, ""}};
+		{{error, _}, false} -> {error, invalid_dir}
 	end;
 
 step_forward(Root, CwdAbsName, Index, Req) ->
 	{CurrPwd, NextReq} = lists:split(Index-1, Req),
-	NewAbsName = string:join([Root, CwdAbsName, CurrPwd], ""),
-	CorrectedAbsName = slash_correct(NewAbsName),
-	case filelib:is_dir(CorrectedAbsName) of
-		true -> {ok, {NewAbsName, NextReq}};
-		false -> {error, invalid_dir}
+	NewAbsName = string:join([CwdAbsName, CurrPwd], ""),
+	CorrectedAbsName = slash_correct(string:join([Root, NewAbsName], "")),
+	case {file:read_link(CorrectedAbsName), filelib:is_dir(CorrectedAbsName)} of
+		{{ok, NewPath}, _} -> CorrectedNextReq = slash_correct(string:join([NewPath, NextReq], "/")),
+					set_cwd(Root, CwdAbsName, CorrectedNextReq);
+					%{ok, {CwdAbsName, CorrectedNextReq}};
+		{{error, _}, true} -> {ok, {NewAbsName, NextReq}};
+		{{error, _}, false} -> {error, invalid_dir}
 	end.
 
 step_back(CwdAbsName, 0) ->
@@ -114,3 +121,4 @@ cdd_fun(Req, Acc) ->
 		1 -> cdd_fun(lists:nthtail(3, Req), Acc+1);
 		Index -> {Index, Acc, Req}
 	end.
+
