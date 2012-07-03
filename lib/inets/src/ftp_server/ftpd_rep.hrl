@@ -84,11 +84,4 @@
 -type reply()      :: {reply, ReplyCode :: integer(), Message :: string()}.
 -type argschange() :: sameargs | {newargs, NewArgs :: proplist()}.
 
--type connitem()   :: ftpd:ftp_option() |
-                      {control_socket, Socket :: socket()} |
-                      {username, User :: string()} |
-                      authed |
-                      {repr_type, Params :: list()}.
--type connstate()  :: [connitem()].
-
 -endif.

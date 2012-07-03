@@ -61,7 +61,8 @@ fold_args(_, Data) ->
 	Data.
 
 %% Control Connection - Wait for incoming messages
--spec do_recv(Sock :: socket(),Args :: connstate(),PrevData :: binary()) -> ok.
+-spec do_recv(Sock :: socket(), Args :: #ctrl_conn_data{}, PrevData :: binary())
+      -> ok.
 do_recv(Sock, Args, PrevData) ->
 	?LOG("do_recv prev data: ~p\n", [PrevData]),
 	case gen_tcp:recv(Sock, 0) of
@@ -102,11 +103,34 @@ process_message(Sock, Command, Msg, Args) ->
 	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Control functions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Make response
+mk_rep(Code, Message) ->
+	{?RESP(Code, Message), sameargs}.
+mk_rep(Code, Message, NewArgs) ->
+	{?RESP(Code, Message), {newargs, NewArgs}}.
+
+%% Send response if needed
+handle_reply(_, noreply) ->
+	ok;
+handle_reply(Sock, {reply, Code, Message}) ->
+	?UTIL:send_reply(Sock, Code, Message).
+
+can_continue_recv(Command) ->
+	Command /= <<"QUIT">>.
+
+close_socket(Sock) ->
+	?LOG("---------------- CONNECTION CLOSE ----------------\n"),
+	gen_tcp:close(Sock).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Handle incoming FTP commands
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec handle_command(Command :: bitstring(), Message :: [bitstring()],
-	Args :: connstate()) -> {reply(), argschange()}.
+	Args :: #ctrl_conn_data{}) -> {reply(), argschange()}.
 
 handle_command(<<"NOOP">>, [], _) ->
 	mk_rep(200, "NOOP command successful");
@@ -234,7 +258,7 @@ handle_command(<<"PASV">>, [], Args) ->
 
 handle_command(<<"PORT">>, [BinArg1], Args) ->
 	Params       = binary_to_list(BinArg1),
-	IpPortParams = string:tokens(Params,","),
+	IpPortParams = string:tokens(Params, ","),
 	case ?UTIL:list2portip(IpPortParams) of
 		{ok, {Addr, Port}} ->
 			ftpd_data_conn:reinit_data_conn(Args),
@@ -387,25 +411,3 @@ handle_command(Command, _, _) ->
 		true  -> mk_rep(501, "Invalid number of arguments");
 		false -> mk_rep(500, binary_to_list(Command) ++ " not implemented")
 	end.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Control functions
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-mk_rep(Code, Message) ->
-	{?RESP(Code, Message), sameargs}.
-mk_rep(Code, Message, NewArgs) ->
-	{?RESP(Code, Message), {newargs, NewArgs}}.
-
-%% Send response if needed
-handle_reply(_, noreply) ->
-	ok;
-handle_reply(Sock, {reply, Code, Message}) ->
-	?UTIL:send_reply(Sock, Code, Message).
-
-can_continue_recv(Command) ->
-	Command /= <<"QUIT">>.
-
-close_socket(Sock) ->
-	?LOG("---------------- CONNECTION CLOSE ----------------\n"),
-	gen_tcp:close(Sock).

@@ -63,15 +63,13 @@ reinit_data_conn(Args) ->
 		LastPid -> exit(LastPid, kill)
 	end.
 
-%% socket
-
 send_msg(MsgType, Msg, Args) ->
 	case Args#ctrl_conn_data.data_pid of
 		none ->
-			send_reply_on_ctrl(Args,500,"Data connection not established.");
-		PasvPid ->
-			send_reply_on_ctrl(Args,150,"Opening BINARY mode data connection"),
-			PasvPid ! {MsgType, Msg, Args}
+			send_ctrl_reply(Args, 500, "Data connection not established.");
+		DataPid ->
+			send_ctrl_reply(Args, 150, "Opening BINARY mode data connection"),
+			DataPid ! {MsgType, Msg, Args}
 	end,
 	{noreply, sameargs}.
 
@@ -90,7 +88,6 @@ data_conn_main(DataSock) ->
 	?LOG("~p PASV send loop\n", [DataSock]),
 	receive
 		{list, {FileNames, Path, ListType}, Args} ->
-			?LOG("~p PASV send LIST data\n", [Args#ctrl_conn_data.control_socket]),
 			TempMsg =
 				case ListType of
 					lst  -> [?UTIL:get_file_info(FN, Path) || FN <- FileNames];
@@ -110,11 +107,10 @@ data_conn_main(DataSock) ->
 					TraceParams = [RelPath ++ "/" ++ FileName, FileName],
 					?UTIL:tracef(Args, ?RETR, TraceParams), %% TODO 2nd param ??
 					transfer_complete(Args);
-				{error, Reason} ->
+				{error, _} ->
 					RespStr = "Requested action not taken. File unavailable, "
 					          "not found, not accessible",
-					send_ctrl_response(Args, 550, RespStr),
-					io:format("File error: ~p, ~p\n", [Reason, FPath])
+					send_ctrl_response(Args, 550, RespStr)
 			end;
 		{stor, {FileName, FullClientName, Mode}, Args} ->
 			AbsPath = Args#ctrl_conn_data.chrootdir,
@@ -126,8 +122,7 @@ data_conn_main(DataSock) ->
 					TraceParams = [RelPath ++ "/" ++ FileName, FullClientName],
 					?UTIL:tracef(Args, ?STOR, TraceParams),
 					transfer_complete(Args);
-				{error, Reason} ->
-					io:format("File receive error: ~p\n", [Reason]),
+				{error, _} ->
 					RespStr = "Requested action not taken. File unavailable, "
 					          "not found, not accessible",
 					send_ctrl_response(Args, 550, RespStr)
@@ -140,7 +135,9 @@ data_conn_main(DataSock) ->
 receive_and_store(DataSock, FPath, Mode, ReprType) ->
 	case file:open(FPath, [Mode, binary]) of
 		{ok, Id} ->
-			case {receive_and_write_chunks(DataSock, Id, ReprType), file:close(Id)} of
+			Receive = receive_and_write_chunks(DataSock, Id, ReprType),
+			Close   = file:close(Id),
+			case {Receive, Close} of
 				{ok, ok} -> ok;
 				_        -> {error, receive_fail}
 			end;
@@ -163,9 +160,9 @@ send_ctrl_response(Args, Command, Msg) ->
 	end.
 
 transfer_complete(Args) ->
-	send_reply_on_ctrl(Args, 226, "Transfer complete").
+	send_ctrl_reply(Args, 226, "Transfer complete").
 
-send_reply_on_ctrl(Args, Command, Msg) ->
+send_ctrl_reply(Args, Command, Msg) ->
 	case Args#ctrl_conn_data.control_socket of
 		none -> io:format("Error: Looking up control connection failed\n");
 		Sock -> ?UTIL:send_reply(Sock, Command, Msg)
