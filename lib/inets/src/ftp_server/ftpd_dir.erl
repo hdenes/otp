@@ -84,6 +84,9 @@ cwd_fun(Root, CwdAbsName, Req) ->
 		Error -> Error
 	end.
 
+step_forward(_, CwdAbsName, 0, "/.") ->
+	{ok, {CwdAbsName, ""}};
+
 step_forward(Root, CwdAbsName, 0, Req) ->
 	NewAbsName = string:join([CwdAbsName, Req], ""),
 	CorrectedAbsName = slash_correct(string:join([Root, NewAbsName], "")),
