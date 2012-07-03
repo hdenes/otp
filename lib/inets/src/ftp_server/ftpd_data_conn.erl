@@ -129,10 +129,15 @@ data_conn_main(DataSock) ->
 
 %% Receive binaries and store them in a file
 receive_and_store(DataSock, FPath, Mode, ReprType) ->
-	{ok, Id} = file:open(FPath, [Mode, binary]),
-	case {receive_and_write_chunks(DataSock, Id, ReprType), file:close(Id)} of
-		{ok, ok} -> ok;
-		_        -> {error, receive_fail}
+	case file:open(FPath, [Mode, binary]) of
+		{ok, Id} ->
+			case {receive_and_write_chunks(DataSock, Id, ReprType), file:close(Id)} of
+				{ok, ok} -> ok;
+				_        -> {error, receive_fail}
+			end;
+		{error, Reason} ->
+			io:format("File open error: ~p\n", [Reason]),
+			{error, open_fail}
 	end.
 
 receive_and_write_chunks(DataSock, DevId, ReprType) ->

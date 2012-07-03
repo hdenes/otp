@@ -50,7 +50,12 @@ init(Args) ->
 	Args1 = BaseArgs ++
 		case proplists:lookup(bind_address, Args) of
 			{bind_address, Addr={_,_,_,_,_,_,_,_}} -> [{ip, Addr}, inet6];
-			{bind_address, Addr}                   -> [{ip, Addr}];
+			{bind_address, Addr={_,_,_,_}}         -> [{ip, Addr}];
+			{bind_address, Addr}                   ->
+				case ?UTIL:getaddr(Addr) of
+					{ok, IP} -> [{ip, IP}];
+					_		 -> []
+				end;
 			none                                   -> []
 		end,
 	Args2 = Args1 ++
