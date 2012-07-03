@@ -544,7 +544,7 @@ unwritable_dir_test(Config) ->
     UnwriteDir = ?config(un_name, Config),
     File = ?config(file_to_rename, Config),
     {error, _} = ftp:send_bin(Ftp, <<"abc">>, filename:join([UnwriteDir, "tmp"])),
-    ok = ftp:cd(Ftp, UnwriteDir),
+    ok = ftp:cd(Ftp, "tmp"),
     {error, _} = ftp:rename(Ftp, File, "test").
 
 unwritable_file_test(doc) ->
