@@ -76,7 +76,7 @@ handle_splitted_stream([Data], PrevData, Sock, Args) ->
 
 handle_splitted_stream([Data|T], PrevData, Sock, Args) ->
 	{Command, Msg} = ?UTIL:packet_to_tokens(<<PrevData/binary, Data/binary>>),
-	?LOG("[~p-Recv]: ~p - ~p\n", [self(), Command, Msg]),
+	?LOG("[~p-Recv]: ~p - ~p\n", [Sock, Command, Msg]),
 	NewArgs = process_message(Sock, Command, Msg, Args),
 	case can_continue_recv(Command) of
 		true  -> handle_splitted_stream(T, <<>>, Sock, NewArgs);
@@ -136,12 +136,12 @@ handle_command(<<"PASS">>, ParamsBin, Args) ->
 	User     = Args#ctrl_conn_data.username,
 	Anon     = ?is_anon(Args),
 	case {Authed, User, Anon} of
-		{true,  _,    _} -> mk_rep(503, "You are already logged in");
-		{false, none, _} -> mk_rep(503, "Login with USER first");
+		{true,  _,    _   } -> mk_rep(503, "You are already logged in");
+		{false, none, _   } -> mk_rep(503, "Login with USER first");
 		{false, _,    true} ->
 			NewArgs = Args#ctrl_conn_data{ authed = true },
 			mk_rep(230,"Anonymous access granted, restrictions apply",NewArgs);
-		{false, _, false} ->
+		{false, _,   false} ->
 			PwdFun = Args#ctrl_conn_data.pwd_fun,
 			case PwdFun(User, Password) of
 				authorized ->
@@ -198,13 +198,8 @@ handle_command(<<"CWD">>, ParamsBin, Args) ->
 	BaseDir = Args#ctrl_conn_data.chrootdir,
 	case ftpd_dir:set_cwd(BaseDir, CurDir, NewDir) of
 		{ok, NewPath} ->
-			NewPath2 =                 %% TODO ??
-				case NewPath of
-					""      -> "/";
-					NewPath -> NewPath
-				end,
-			?UTIL:tracef(Args, ?CWD, [NewPath2]),
-			NewArgs = Args#ctrl_conn_data{ curr_path = NewPath2 },
+			?UTIL:tracef(Args, ?CWD, [NewPath]),
+			NewArgs = Args#ctrl_conn_data{ curr_path = NewPath },
 			mk_rep(250, "CWD command successful.", NewArgs);
 		{error, _} ->
 			mk_rep(550, NewDir ++ ": No such file or directory")
@@ -224,51 +219,62 @@ handle_command(<<"PASV">>, [], Args) ->
 	case ?UTIL:get_server_ip() of
 		{ok, Address} ->
 			ftpd_data_conn:reinit_data_conn(Args),
-			{PasvPid, {ok, Port}} = ftpd_data_conn:start_passive_mode(inet4),
-			NewArgs = Args#ctrl_conn_data{ data_pid = PasvPid },
-			AddrStr = ?UTIL:format_address(Address, Port),
-			mk_rep(227, "Entering Passive Mode (" ++ AddrStr ++ ").", NewArgs);
-		{error, Error} ->
-			io:format("ERROR: inet:getaddr, ~p\n", [Error]),
-			mk_rep(500, "PASV command failed")
+			case ftpd_data_conn:start_passive_mode(inet4) of
+				{ok, {PasvPid, Port}} ->
+					NewArgs = Args#ctrl_conn_data{ data_pid = PasvPid },
+					AddrStr = ?UTIL:format_address(Address, Port),
+					RespStr = "Entering Passive Mode (" ++ AddrStr ++ ").",
+					mk_rep(227, RespStr, NewArgs);
+				{error, _} ->
+					mk_rep(500, "PASV command failed (1)")
+			end;
+		{error, _} ->
+			mk_rep(500, "PASV command failed (2)")
 	end;
 
 handle_command(<<"PORT">>, [BinArg1], Args) ->
 	Params       = binary_to_list(BinArg1),
 	IpPortParams = string:tokens(Params,","),
 	case ?UTIL:list2portip(IpPortParams) of
-		{error, _}   -> mk_rep(500, "PORT command failed (2)");
-		{Addr, Port} ->
+		{ok, {Addr, Port}} ->
 			ftpd_data_conn:reinit_data_conn(Args),
 			case ftpd_data_conn:start_active_mode(inet4, Addr, Port) of
 				{ok, PasvPid} ->
 					NewArgs = Args#ctrl_conn_data{ data_pid = PasvPid },
 					mk_rep(200, "PORT command successful", NewArgs);
-				{error, _} -> mk_rep(500, "PORT command failed (1)")
-			end
+				{error, _} ->
+					mk_rep(500, "PORT command failed (1)")
+			end;
+		{error, _} -> mk_rep(500, "PORT command failed (2)")
 	end;
 
 handle_command(<<"EPSV">>, [], Args) ->
 	ftpd_data_conn:reinit_data_conn(Args),
-	{PasvPid, {ok, Port}} = ftpd_data_conn:start_passive_mode(inet6),
-	RspStr = "Entering Extended Passive Mode (|||"++integer_to_list(Port)++"|)",
-	NewArgs = Args#ctrl_conn_data{ data_pid = PasvPid },
-	mk_rep(229, RspStr, NewArgs);
+	case ftpd_data_conn:start_passive_mode(inet6) of
+		{ok, {PasvPid, Port}} ->
+			RspStr = "Entering Extended Passive Mode (|||"
+			          ++ integer_to_list(Port) ++ "|)",
+			NewArgs = Args#ctrl_conn_data{ data_pid = PasvPid },
+			mk_rep(229, RspStr, NewArgs);
+		{error, _} ->
+			mk_rep(500, "EPSV command failed")
+	end;
 
 %% format : EPRT<space><d><net-prt><d><net-addr><d><tcp-port><d>
 handle_command(<<"EPRT">>, [BinArg1], Args) ->
 	Params = binary_to_list(BinArg1),
 	IpPortParams = string:tokens(Params, "|"),
 	case ?UTIL:eprtlist2portip(IpPortParams) of
-		{error, _}   -> mk_rep(500, "EPRT command failed (2)");
-		{Addr, Port} ->
+		{ok, {Addr, Port}} ->
 			ftpd_data_conn:reinit_data_conn(Args),
 			case ftpd_data_conn:start_active_mode(inet6, Addr, Port) of
 				{ok, PasvPid} ->
 					NewArgs = Args#ctrl_conn_data{ data_pid = PasvPid },
 					mk_rep(200, "EPRT command successful", NewArgs);
 				{error, _} -> mk_rep(500, "EPRT command failed (1)")
-			end
+			end;
+		{error, _} ->
+			mk_rep(500, "EPRT command failed (2)")
 	end;
 
 handle_command(<<"LIST">>, ParamsBin, Args) ->
@@ -279,8 +285,13 @@ handle_command(<<"LIST">>, ParamsBin, Args) ->
 		{ok, NewPath} ->
 			?UTIL:tracef(Args, ?LIST, [NewPath]),
 			FullPath    = AbsPath ++ NewPath,
-			{ok, Files} = file:list_dir(FullPath),
-			ftpd_data_conn:send_msg(list,{lists:sort(Files),FullPath,lst},Args);
+			case file:list_dir(FullPath) of
+				{ok, Files} ->
+					Data = {lists:sort(Files), FullPath, lst},
+					ftpd_data_conn:send_msg(list, Data, Args);
+				{error, _} ->
+					mk_rep(450, DirToList ++ ": Error in listing")
+			end;
 		{error, _} ->
 			mk_rep(450, DirToList ++ ": No such file or directory")
 	end;
@@ -291,8 +302,13 @@ handle_command(<<"NLST">>, ParamsBin, Args) ->
 	RelPath   = Args#ctrl_conn_data.curr_path,
 	case ftpd_dir:set_cwd(AbsPath, RelPath, DirToList) of
 		{ok, NewPath} ->
-			{ok, Files} = file:list_dir(AbsPath ++ NewPath),
-			ftpd_data_conn:send_msg(list, {lists:sort(Files), "", nlst}, Args);
+			case file:list_dir(AbsPath ++ NewPath) of
+				{ok, Files} ->
+					Data = {lists:sort(Files), "", nlst},
+					ftpd_data_conn:send_msg(list, Data, Args);
+				{error, _} ->
+					mk_rep(450, DirToList ++ ": Error in listing")
+			end;
 		{error, _} ->
 			mk_rep(450, DirToList ++ ": No such file or directory")
 	end;
@@ -353,7 +369,7 @@ handle_command(<<"RNTO">>, ParamsBin, Args) ->
 	ToPath = ?UTIL:get_full_path(Args) ++ ToName,
 	case Args#ctrl_conn_data.rename_from of
 		none ->
-			mk_rep(550, "RNTO command failed (1)");
+			mk_rep(550, "RNTO command failed, RNFR required before");
 		FromPath ->
 			io:format("Rename: From: ~p || To: ~p\n", [FromPath, ToPath]),
 			NewArgs = Args#ctrl_conn_data{ rename_from = none },
