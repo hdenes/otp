@@ -75,13 +75,13 @@
 suite() -> [{timetrap, {seconds, 30}}].
 
 all() -> [
-%	{group, basic_tests},
-	{group, login_tests}%,
-%	{group, directory_tests},
-%    	{group, download_upload_tests},
-%	{group, ipv6_tests},
-%	{group, log_trace_tests},
-%	{group, negative_tests}
+	{group, basic_tests},
+	{group, login_tests},
+	{group, directory_tests},
+    	{group, download_upload_tests},
+	{group, ipv6_tests},
+	{group, log_trace_tests},
+	{group, negative_tests}
     ].
 
 groups() ->
@@ -194,8 +194,10 @@ init_per_testcase(unwritable_dir_test, Config) ->
     DataDir = ?config(data_dir, Config),
     UnwriteDir = filename:join([DataDir, "tmp"]),
     ok = file:make_dir(UnwriteDir),
-    ok = file:change_mode(UnwriteDir, 8#00400),
-    [{un_name, UnwriteDir} | ftp_connect(Config)];
+    FileToRename = filename:join([UnwriteDir, "tmp"]),
+    ok = file:write_file(FileToRename, <<"abc">>),
+    ok = file:change_mode(UnwriteDir, 8#00555),
+    [{un_name, UnwriteDir}, {file_to_rename, FileToRename} | ftp_connect(Config)];
 
 init_per_testcase(unwritable_file_test, Config) ->
     DataDir = ?config(data_dir, Config),
@@ -238,8 +240,15 @@ end_per_testcase(cd_over_symlink_test, Config) ->
     ok = file:delete(OutLink),
     ftp_close(Config);
 
-end_per_testcase(UT, Config) when UT =:= unreadable_dir_test;
-                                  UT =:= unwritable_dir_test ->
+end_per_testcase(unwritable_dir_test, Config) ->
+    UnName = ?config(un_name, Config),
+    File = ?config(file_to_rename, Config),
+    ok = file:change_mode(UnName, 8#00777),
+    ok = file:delete(File),
+    ok = file:del_dir(UnName),
+    ftp_close(Config);
+
+end_per_testcase(unreadable_dir_test, Config) ->
     UnName = ?config(un_name, Config),
     ok = file:change_mode(UnName, 8#00666),
     ok = file:del_dir(UnName),
@@ -305,7 +314,8 @@ connect_v6_test(_Config) ->
 
 info_test(Config) ->
     Pid = ?config(ftpd_pid, Config),
-    {ftpd, Pid, _} = proplists:get_value(ftpd, inets:services_info()).
+    Info = inets:services_info(),
+    {value, {ftpd, Pid, _}} = lists:keysearch(ftpd, 1, Info).
 
 fd_test(doc) ->
     ["Test that we can pass a file descriptor to FTP server"];
@@ -480,13 +490,13 @@ cd_up_from_root_test(suite) ->
 cd_up_from_root_test(Config) ->
     Ftp = ?config(ftp_pid, Config),
     {ok, "/"} = ftp:pwd(Ftp),
-    {error, _} = ftp:cd(Ftp, ".."),
+    ok = ftp:cd(Ftp, ".."),
     {ok, "/"} = ftp:pwd(Ftp),
-    {error, _} = ftp:cd(Ftp, "../.."),
+    ok = ftp:cd(Ftp, "../.."),
     {ok, "/"} = ftp:pwd(Ftp),
-    {error, _} = ftp:cd(Ftp, "dir/../.."),
+    ok = ftp:cd(Ftp, "dir/../.."),
     {ok, "/"} = ftp:pwd(Ftp),
-    {error, _} = ftp:cd(Ftp, "./.."),
+    ok = ftp:cd(Ftp, "./.."),
     {ok, "/"} = ftp:pwd(Ftp).
 
 cd_over_symlink_test(doc) ->
@@ -530,7 +540,10 @@ unwritable_dir_test(suite) ->
 unwritable_dir_test(Config) ->
     Ftp = ?config(ftp_pid, Config),
     UnwriteDir = ?config(un_name, Config),
-    {error, _} = ftp:send_bin(Ftp, <<"abc">>, filename:join([UnwriteDir, "tmp"])).
+    File = ?config(file_to_rename, Config),
+    {error, _} = ftp:send_bin(Ftp, <<"abc">>, filename:join([UnwriteDir, "tmp"])),
+    ok = ftp:cd(Ftp, UnwriteDir),
+    {error, _} = ftp:rename(Ftp, File, "test").
 
 unwritable_file_test(doc) ->
     ["Check that the FTP server doesn't let write to an unwritable file"];
