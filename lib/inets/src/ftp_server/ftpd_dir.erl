@@ -69,8 +69,8 @@ cwd_fun(Root, CwdAbsName, "") ->
 			NewAbsName = lists:sublist(CwdAbsName, length(CwdAbsName)-1),
 			cwd_fun(Root, NewAbsName, "");
 		false ->
-			CwdAbsName,
-			{ok, slash_correct(CwdAbsName)}
+			NewAbsName = lists:concat(["/", CwdAbsName]),
+			{ok, slash_correct(NewAbsName)}
 	end;
 %	io:format("SlashAbs: ~p\n", [slash_correct(NewAbsName)]),
 
@@ -88,7 +88,8 @@ step_forward(Root, CwdAbsName, 0, Req) ->
 	NewAbsName = string:join([CwdAbsName, Req], ""),
 	CorrectedAbsName = slash_correct(string:join([Root, NewAbsName], "")),
 	case {file:read_link(CorrectedAbsName), filelib:is_dir(CorrectedAbsName)} of
-		{{ok, NewPath}, _} -> set_cwd(Root, CwdAbsName, NewPath);
+		{{ok, NewPath}, _} -> 	NewReq = slash_correct(lists:concat([NewPath, "/", Req])),
+					set_cwd(Root, CwdAbsName, NewReq);
 					%{ok, {CwdAbsName, CorrectedNextReq}};
 		{{error, _}, true} -> {ok, {NewAbsName, ""}};
 		{{error, _}, false} -> {error, invalid_dir}
