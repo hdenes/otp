@@ -97,6 +97,8 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    DataDir = ?config(data_dir, Config),
+    file:make_dir(filename:join([DataDir, "empty_dir"])),
     ok = inets:start(),
     Config.
 
