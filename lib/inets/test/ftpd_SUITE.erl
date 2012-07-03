@@ -35,6 +35,7 @@
 	 connect_v6_test/1,
      	 login_success_test/1,
      	 login_failure_test/1,
+         info_test/1,
 	 ls_test/1,
 	 ls_dir_test/1,
 	 ls_empty_dir_test/1,
@@ -74,18 +75,18 @@
 suite() -> [{timetrap, {seconds, 30}}].
 
 all() -> [
-	{group, basic_tests},
-	{group, login_tests},
-	{group, directory_tests},
-    	{group, download_upload_tests},
-	{group, ipv6_tests},
-	{group, log_trace_tests},
-	{group, negative_tests}
+%	{group, basic_tests},
+	{group, login_tests}%,
+%	{group, directory_tests},
+%    	{group, download_upload_tests},
+%	{group, ipv6_tests},
+%	{group, log_trace_tests},
+%	{group, negative_tests}
     ].
 
 groups() ->
     [{basic_tests, [], [start_stop_test, connect_test, multiple_servers_test, connect_v6_test, fd_test]},
-     {login_tests, [], [login_success_test, login_failure_test]},
+     {login_tests, [], [login_success_test, login_failure_test, info_test]},
      {directory_tests, [parallel], [ls_test, ls_dir_test, ls_empty_dir_test, nlist_test, cd_test, pwd_test]},
      {download_upload_tests, [], [download_test, upload_test, chunk_test]},
      {ipv6_tests, [], [ls_test, ls_dir_test, ls_empty_dir_test, cd_test, download_test, upload_test]},
@@ -301,6 +302,10 @@ connect_v6_test(_Config) ->
     after
 	inets:stop(ftpd, Pid)
     end.
+
+info_test(Config) ->
+    Pid = ?config(ftpd_pid, Config),
+    {ftpd, Pid, _} = proplists:get_value(ftpd, inets:services_info()).
 
 fd_test(doc) ->
     ["Test that we can pass a file descriptor to FTP server"];
