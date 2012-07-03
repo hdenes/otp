@@ -27,15 +27,16 @@
 -export([init/1,stop/1]).
 
 -define(SUP_SPEC, {one_for_one, 1, 60}).
+-include_lib("ftpd_rep.hrl").
 
 start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 start_link(Config) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Config]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, Config).
 
 start_link(Config, stand_alone) ->
-    supervisor:start_link(?MODULE, [Config]).
+    supervisor:start_link(?MODULE, Config).
 
 stop(Pid) ->
 	exit(Pid,shutdown), %% TODO error reporting
@@ -46,7 +47,7 @@ init([]) ->
 
 init(Config) ->
 	ChildSpec = get_listener_child_spec(self(), Config),
-	{ok, {?SUP_SPEC, ChildSpec}}.
+	{ok, {?SUP_SPEC, [ChildSpec]}}.
 
 start_child(Config) ->
 	ChildSpec = get_listener_child_spec(self(), Config),
@@ -75,7 +76,7 @@ get_child_id(Pid) ->
 
 get_listener_child_spec(SupPid, Config) ->
 	NewArgs = [ {sup_pid, SupPid} | Config],
-	ChildId = set_child_id(proplists:get_value(port,Config)),
+	ChildId = set_child_id(proplists:get_value(port, Config, ?DEFAULT_PORT)),
 	{ChildId, {ftpd_listener, start_link, [NewArgs]},
        		     permanent, 100000, worker, [ftpd_listener]}.
 

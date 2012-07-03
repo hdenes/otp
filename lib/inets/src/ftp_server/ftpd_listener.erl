@@ -63,10 +63,13 @@ init(Args) ->
 			none   -> [];
 			FdProp -> [FdProp]
 		end,
+	case gen_tcp:listen(Port, Args2) of
+    	  {ok, LSock} ->
+   	   	spawn(?MODULE, loop, [LSock, Args]),
+     	 	{ok, {Port, Args, LSock}};
+ 	   Error -> Error
+  	end.
 
-	{ok, LSock} = gen_tcp:listen(Port, Args2),
-    spawn(?MODULE, loop, [LSock, Args]),
-	{ok, {Port, Args, LSock}}.
 
 info(Pid) ->
 	gen_server:call(Pid, info).
