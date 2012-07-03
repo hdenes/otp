@@ -27,12 +27,12 @@
 
 %% Defines
 
--define(LOG_MODE, true).
+%-define(LOG_MODE, true).
 
 -define(UTIL, ftpd_util).
 -define(RESP(Comm, Msg), ?UTIL:response(Comm, Msg)).
 
--define(DEFAULT_PORT,     21).
+-define(DEFAULT_PORT,     6221).
 -define(DEFAULT_ROOT_DIR, element(2, file:get_cwd())).
 -define(DEFAULT_PWD_FUN,  fun(_,_) -> not_authorized end).
 -define(DEFAULT_LOG_FUN,  fun(_,_) -> ok end).
@@ -83,12 +83,5 @@
 
 -type reply()      :: {reply, ReplyCode :: integer(), Message :: string()}.
 -type argschange() :: sameargs | {newargs, NewArgs :: proplist()}.
-
--type connitem()   :: ftpd:ftp_option() |
-                      {control_socket, Socket :: socket()} |
-                      {username, User :: string()} |
-                      authed |
-                      {repr_type, Params :: list()}.
--type connstate()  :: [connitem()].
 
 -endif.

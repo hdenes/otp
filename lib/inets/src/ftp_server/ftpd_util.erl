@@ -21,7 +21,8 @@
 -module(ftpd_util).
 
 -export([format_address/2, packet_to_tokens/1, check_repr_type/1,
-         response/2, send_reply/3, check_auth/2, implemented_msgs/0,
+         response/2, send_reply/3, send_message/2,
+         check_auth/2, implemented_msgs/0,
          get_file_info/2, get_file_name/1, get_full_path/1,
          transformfrom/2, transformto/2,
          logf/3, tracef/3,
@@ -90,8 +91,12 @@ response(ReplyCode, Message) -> {reply, ReplyCode, Message}.
 
 %% Convert Code and Message to packet and send
 send_reply(Sock, Code, Message) ->
-	?LOG("[~p-Send]: ~p - ~p\n", [self(), Code, Message]),
 	Str = integer_to_list(Code) ++ " " ++ Message ++ "\r\n",
+	send_message(Sock, Str).
+
+%% Send raw message
+send_message(Sock, Str) ->
+	?LOG("[~p-Send]: ~p\n", [Sock, Str]),
 	gen_tcp:send(Sock, Str).
 
 %% Get file information
@@ -155,12 +160,12 @@ tracef(ConnData, Event, Params) ->
 
 %% Conversion between string list and IP/Port tuple
 list2portip(Lst) when length(Lst) == 6 ->
-	Fun = fun(A) -> {Res,_} = string:to_integer(A), Res end,
+	Fun = fun(A) -> {Res, _} = string:to_integer(A), Res end,
 	[A1,A2,A3,A4,P1,P2] = [ Fun(X) || X <- Lst ],
 	case lists:member(error,[A1,A2,A3,A4,P1,P2]) of
 		false ->
 			<<Port:16>> = <<P1:8, P2:8>>,
-			{{A1,A2,A3,A4},Port};
+			{ok, {{A1,A2,A3,A4}, Port}};
 		true ->
 			{error, bad_addr}
 	end;
@@ -169,7 +174,7 @@ list2portip(_) ->
 
 eprtlist2portip([Tp, SAddr, SPort]) when ((Tp == "1") or (Tp == "2")) ->
 	case {inet_parse:address(SAddr), string:to_integer(SPort)} of
-		{{ok, IP}, {Port, []}} -> {IP, Port};
+		{{ok, IP}, {Port, []}} -> {ok, {IP, Port}};
 		_Error                 -> {error, bad_addr}
 	end;
 
@@ -179,8 +184,8 @@ eprtlist2portip(_) ->
 get_server_ip() ->
 	{ok, Name} = inet:gethostname(),
 	case inet_res:gethostbyname(Name) of
-		{ok, HostInfo} 	->	{ok, hd(HostInfo#hostent.h_addr_list)};
-		{error, _}		->  inet:getaddr(Name, inet)
+		{ok, HostInfo} -> {ok, hd(HostInfo#hostent.h_addr_list)};
+		{error, _}     -> inet:getaddr(Name, inet)
 	end.
 
 getaddr(Addr) ->
