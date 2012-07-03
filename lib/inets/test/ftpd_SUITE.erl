@@ -75,13 +75,13 @@
 suite() -> [{timetrap, {seconds, 30}}].
 
 all() -> [
-%	{group, basic_tests},
-	{group, login_tests}%,
-%	{group, directory_tests},
-%    	{group, download_upload_tests},
-%	{group, ipv6_tests},
-%	{group, log_trace_tests},
-%	{group, negative_tests}
+	{group, basic_tests},
+	{group, login_tests},
+	{group, directory_tests},
+	{group, download_upload_tests},
+	{group, ipv6_tests},
+	{group, log_trace_tests},
+	{group, negative_tests}
     ].
 
 groups() ->
@@ -305,7 +305,7 @@ connect_v6_test(_Config) ->
 
 info_test(Config) ->
     Pid = ?config(ftpd_pid, Config),
-    {ftpd, Pid, _} = proplists:get_value(ftpd, inets:services_info()).
+    {ftpd, Pid, _} = lists:keyfind(ftpd, 1, inets:services_info()).
 
 fd_test(doc) ->
     ["Test that we can pass a file descriptor to FTP server"];
