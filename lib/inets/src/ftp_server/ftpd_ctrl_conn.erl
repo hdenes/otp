@@ -220,6 +220,7 @@ handle_command(<<"CWD">>, ParamsBin, Args) ->
 	NewDir  = ?UTIL:binlist_to_string(ParamsBin),
 	CurDir  = Args#ctrl_conn_data.curr_path,
 	BaseDir = Args#ctrl_conn_data.chrootdir,
+	io:format("\n~p | ~p | ~p\n", [BaseDir, CurDir, NewDir]),
 	case ftpd_dir:set_cwd(BaseDir, CurDir, NewDir) of
 		{ok, NewPath} ->
 			?UTIL:tracef(Args, ?CWD, [NewPath]),
@@ -346,8 +347,9 @@ handle_command(<<"MKD">>, _, Args) when ?is_anon(Args) ->
 
 handle_command(<<"MKD">>, ParamsBin, Args) ->
 	Dir      = ?UTIL:binlist_to_string(ParamsBin),
-	RelPath  = Args#ctrl_conn_data.curr_path ++ Dir,
-	FullPath = ?UTIL:get_full_path(Args) ++ Dir,
+	RelPath  = ?UTIL:concat_paths(Args#ctrl_conn_data.curr_path, Dir),
+	FullPath = ?UTIL:concat_paths(?UTIL:get_full_path(Args), Dir),
+	io:format("FP: ~p, RP: ~p", [FullPath, RelPath]),
 	case file:make_dir(FullPath) of
 		ok              -> mk_rep(257, "\"" ++RelPath++ "\" directory created");
 		{error, eexist} -> mk_rep(550, "Folder already exists");
@@ -359,7 +361,7 @@ handle_command(<<"RMD">>, _, Args) when ?is_anon(Args) ->
 
 handle_command(<<"RMD">>, ParamsBin, Args) ->
 	Dir      = ?UTIL:binlist_to_string(ParamsBin),
-	FullPath = ?UTIL:get_full_path(Args) ++ Dir ++ "/",
+	FullPath = ?UTIL:concat_paths(?UTIL:get_full_path(Args), Dir ++ "/"),
 	case file:del_dir(FullPath) of
 		ok         -> mk_rep(250, "Folder deleted");
 		{error, _} -> mk_rep(550, "RMD command failed")
@@ -370,7 +372,7 @@ handle_command(<<"DELE">>, _, Args) when ?is_anon(Args) ->
 
 handle_command(<<"DELE">>, ParamsBin, Args) ->
 	Dir      = ?UTIL:binlist_to_string(ParamsBin),
-	FullPath = ?UTIL:get_full_path(Args) ++ Dir,
+	FullPath = ?UTIL:concat_paths(?UTIL:get_full_path(Args), Dir),
 	case file:delete(FullPath) of
 		ok         -> mk_rep(250, "File deleted");
 		{error, _} -> mk_rep(550, "DELE command failed")
@@ -381,7 +383,7 @@ handle_command(<<"RNFR">>, _, Args) when ?is_anon(Args) ->
 
 handle_command(<<"RNFR">>, ParamsBin, Args) ->
 	FromName = ?UTIL:binlist_to_string(ParamsBin),
-	FullPath = ?UTIL:get_full_path(Args) ++ FromName,
+	FullPath = ?UTIL:concat_paths(?UTIL:get_full_path(Args), FromName),
 	NewArgs  = Args#ctrl_conn_data{ rename_from = FullPath },
 	mk_rep(350, "Requested file action pending further information.", NewArgs);
 
@@ -390,7 +392,7 @@ handle_command(<<"RNTO">>, _, Args) when ?is_anon(Args) ->
 
 handle_command(<<"RNTO">>, ParamsBin, Args) ->
 	ToName = ?UTIL:binlist_to_string(ParamsBin),
-	ToPath = ?UTIL:get_full_path(Args) ++ ToName,
+	ToPath = ?UTIL:concat_paths(?UTIL:get_full_path(Args), ToName),
 	case Args#ctrl_conn_data.rename_from of
 		none ->
 			mk_rep(550, "RNTO command failed, RNFR required before");

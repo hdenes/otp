@@ -27,7 +27,7 @@
 
 %% Defines
 
-%-define(LOG_MODE, true).
+-define(LOG_MODE, true).
 
 -define(UTIL, ftpd_util).
 -define(RESP(Comm, Msg), ?UTIL:response(Comm, Msg)).

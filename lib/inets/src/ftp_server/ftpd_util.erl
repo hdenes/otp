@@ -23,7 +23,7 @@
 -export([format_address/2, packet_to_tokens/1, check_repr_type/1,
          response/2, send_reply/3, send_message/2,
          check_auth/2, implemented_msgs/0,
-         get_file_info/2, get_file_name/1, get_full_path/1,
+         get_file_info/2, get_file_name/1, get_full_path/1, concat_paths/2,
          transformfrom/2, transformto/2,
          logf/3, tracef/3,
          list2portip/1, eprtlist2portip/1, get_server_ip/0, getaddr/1,
@@ -137,6 +137,10 @@ get_full_path(Args) ->
 
 get_file_name(FullName) ->
 	filename:basename(FullName) ++ filename:extension(FullName).
+
+concat_paths(P1, P2) ->
+	Temp = P1 ++ "/" ++ P2,
+	re:replace(Temp, "\/+", "\/", [{return, list}, global]).
 
 %% CRLF transformation from ASCII to own representation
 transformfrom(Bin, _) ->
