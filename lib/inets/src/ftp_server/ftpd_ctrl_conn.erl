@@ -85,7 +85,7 @@ handle_splitted_stream([Data|T], PrevData, Sock, Args) ->
 	end;
 
 handle_splitted_stream([], Prev, Sock, Args) ->
-	io:format("Error: recv failed\n"),
+	?LOG("Error: recv failed\n"),
 	do_recv(Sock, Args, Prev).
 
 process_message(Sock, Command, Msg, Args) ->
@@ -182,7 +182,6 @@ handle_command(<<"PASS">>, ParamsBin, Args) ->
 handle_command(<<"TYPE">>, ParamsBin, Args) ->
 	Params  = [ binary_to_list(E)  || E <- ParamsBin],
 	ParamsF = [ string:to_upper(E) || E <- Params],
-	io:format("~p\n", [typeset]),
 	case ?UTIL:check_repr_type(ParamsF) of
 		true ->
 			NewArgs = Args#ctrl_conn_data{ repr_type = ParamsF },
@@ -395,7 +394,6 @@ handle_command(<<"RNTO">>, ParamsBin, Args) ->
 		none ->
 			mk_rep(550, "RNTO command failed, RNFR required before");
 		FromPath ->
-			io:format("Rename: From: ~p || To: ~p\n", [FromPath, ToPath]),
 			NewArgs = Args#ctrl_conn_data{ rename_from = none },
 			case file:rename(FromPath, ToPath) of
 				ok -> mk_rep(250, "RNTO ok", NewArgs);

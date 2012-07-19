@@ -89,11 +89,11 @@ data_conn_main(DataSock) ->
 	receive
 		{list, {FileNames, Path, ListType}, Args} ->
 			TempMsg =
-				case ListType of
-					lst  -> [?UTIL:get_file_info(FN, Path) || FN <- FileNames];
-					nlst -> FileNames
-				end,
-			FormattedMsg = string:join(TempMsg, "\r\n"),
+				[case ListType of
+					lst  -> ?UTIL:get_file_info(FN, Path);
+					nlst -> FN
+				end ++ "\r\n"|| FN <- FileNames],
+			FormattedMsg = lists:flatten(TempMsg),
 			?UTIL:send_message(DataSock, FormattedMsg),
 			transfer_complete(Args);
 		{retr, FileName, Args} ->
@@ -110,7 +110,7 @@ data_conn_main(DataSock) ->
 				{error, _} ->
 					RespStr = "Requested action not taken. File unavailable, "
 					          "not found, not accessible",
-					send_ctrl_response(Args, 550, RespStr)
+					send_ctrl_reply(Args, 550, RespStr)
 			end;
 		{stor, {FileName, FullClientName, Mode}, Args} ->
 			AbsPath = Args#ctrl_conn_data.chrootdir,
@@ -125,7 +125,7 @@ data_conn_main(DataSock) ->
 				{error, _} ->
 					RespStr = "Requested action not taken. File unavailable, "
 					          "not found, not accessible",
-					send_ctrl_response(Args, 550, RespStr)
+					send_ctrl_reply(Args, 550, RespStr)
 			end
 	end,
 	?LOG("PASV send loop end\n"),
@@ -153,17 +153,11 @@ receive_and_write_chunks(DataSock, DevId, ReprType) ->
 		{error, Reason} -> {error, Reason}
 	end.
 
-send_ctrl_response(Args, Command, Msg) ->
-	case Args#ctrl_conn_data.control_socket of
-		none     -> io:format("Error: no control socket\n"), ok;
-		CtrlSock -> ?UTIL:send_reply(CtrlSock, Command, Msg)
-	end.
-
 transfer_complete(Args) ->
 	send_ctrl_reply(Args, 226, "Transfer complete").
 
 send_ctrl_reply(Args, Command, Msg) ->
 	case Args#ctrl_conn_data.control_socket of
-		none -> io:format("Error: Looking up control connection failed\n");
+		none -> ?LOG("Error: control connection lookup failed");
 		Sock -> ?UTIL:send_reply(Sock, Command, Msg)
 	end.

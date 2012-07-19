@@ -53,7 +53,7 @@ packet_to_tokens(Data) ->
 	SplittedData = re:split(TrimmedData, " "),
 	case SplittedData of
 		[Command | Msg] -> {bin_to_upper(Command), Msg};
-		_               -> io:format("Error: packet parse failed\n"),
+		_               -> ?LOG("Error: packet parse failed\n"),
                            {<<"">>, []}
 	end.
 
@@ -102,7 +102,6 @@ send_message(Sock, Str) ->
 %% Get file information
 %% drwxrwsr-x   3 47688    60000        4096 Dec-9-2005 empty
 get_file_info(FName, FullPath) ->
-	%% io:format(FullPath ++ FName ++ "\n"),
 	{ok, {file_info, Size, Type, Access,
 	_AccTime, _ModTime,
 	{{CYr,CMn,CDa}, {_CH,_CMin,_CSec}},			%% {{2012,6,21},{17,20,49}},
@@ -136,7 +135,7 @@ get_full_path(Args) ->
 	AbsPath ++ RelPath.
 
 get_file_name(FullName) ->
-	filename:basename(FullName) ++ filename:extension(FullName).
+	filename:basename(FullName).
 
 concat_paths(P1, P2) ->
 	Temp = P1 ++ "/" ++ P2,
@@ -148,7 +147,6 @@ transformfrom(Bin, _) ->
 
 %% CRLF transformation from own representation to ASCII
 transformto(Bin, ["A"]) ->
-	io:format("Transforming Data to ASCII\n"),
 	Step1 = re:replace(Bin, "\r\n", "\n", [{return, binary}, global]),
 	re:replace(Step1, "\n", "\r\n", [{return, binary}, global]);
 transformto(Bin, _) ->
