@@ -220,7 +220,6 @@ handle_command(<<"CWD">>, ParamsBin, Args) ->
 	NewDir  = ?UTIL:binlist_to_string(ParamsBin),
 	CurDir  = Args#ctrl_conn_data.curr_path,
 	BaseDir = Args#ctrl_conn_data.chrootdir,
-	io:format("\n~p | ~p | ~p\n", [BaseDir, CurDir, NewDir]),
 	case ftpd_dir:set_cwd(BaseDir, CurDir, NewDir) of
 		{ok, NewPath} ->
 			?UTIL:tracef(Args, ?CWD, [NewPath]),
@@ -349,7 +348,6 @@ handle_command(<<"MKD">>, ParamsBin, Args) ->
 	Dir      = ?UTIL:binlist_to_string(ParamsBin),
 	RelPath  = ?UTIL:concat_paths(Args#ctrl_conn_data.curr_path, Dir),
 	FullPath = ?UTIL:concat_paths(?UTIL:get_full_path(Args), Dir),
-	io:format("FP: ~p, RP: ~p", [FullPath, RelPath]),
 	case file:make_dir(FullPath) of
 		ok              -> mk_rep(257, "\"" ++RelPath++ "\" directory created");
 		{error, eexist} -> mk_rep(550, "Folder already exists");
