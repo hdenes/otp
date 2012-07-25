@@ -102,32 +102,44 @@ send_message(Sock, Str) ->
 %% Get file information
 %% drwxrwsr-x   3 47688    60000        4096 Dec-9-2005 empty
 get_file_info(FName, FullPath) ->
-	{ok, {file_info, Size, Type, Access,
-	_AccTime, _ModTime,
-	{{CYr,CMn,CDa}, {_CH,_CMin,_CSec}},			%% {{2012,6,21},{17,20,49}},
-    _Mode, Links,
+	{ok, {file_info, Size, Type, _Access,
+	_AccTime, {{MY,MM,MD}, {MH,MMin,_MS}},
+	_CreTime,
+    Mode, Links,
 	_MajorDev, _MinorDev, _INode, UID, GID}}
-		= file:read_file_info(FullPath ++ "/" ++ FName),
+		= file:read_file_info(concat_paths(FullPath, FName)),
 
-	TypeLetter =
-		case Type of				%% TODO: UNIX types needed
-			device    -> v;
-			directory -> d;
-			other     -> o;
-			regular   -> '-';
-			symlink   -> s;
-			_         -> u
-		end,
-	AccLetter =
-		case Access of
-			read       -> 'r--';
-			write      -> '-w-';
-			read_write -> 'rw-';
-			_          -> '---'
-		end,
-	lists:concat([TypeLetter,AccLetter,AccLetter,AccLetter,
+	Time = lists:concat(case MY < current_year() of
+		true  -> [MY];
+		false -> [MH,":",MMin]
+	end),
+
+	lists:concat([get_type_letter(Type),get_modes(Mode),
 	" ",Links," ",UID," ",GID," ",Size," ",
-	httpd_util:month(CMn)," ",CDa," ",CYr," ",FName]). %% CH, ":", CMin, " ",
+	httpd_util:month(MM)," ",MD," ",Time," ",FName]).
+
+get_type_letter(device)    -> "b";
+get_type_letter(directory) -> "d";
+get_type_letter(regular)   -> "-";
+get_type_letter(symlink)   -> "l";
+get_type_letter(other)     -> "-";
+get_type_letter(_)         -> "-".
+
+current_year() ->
+	{{Year,_,_}, _} = calendar:local_time(),
+	Year.
+
+get_modes(Mode) ->
+	lists:concat([get_rights(Mode, 1 bsl 6), get_rights(Mode, 1 bsl 3), get_rights(Mode, 1)]).
+
+get_rights(Mode, User) ->
+	lists:concat([check_band(Mode, User bsl 2, "r"), check_band(Mode, User bsl 1, "w"), check_band(Mode, User, "x")]).
+
+check_band(A, B, R) ->
+	case A band B of
+		0 -> "-";
+		_ -> R
+	end.
 
 get_full_path(Args) ->
 	AbsPath = Args#ctrl_conn_data.chrootdir,
